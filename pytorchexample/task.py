@@ -3,6 +3,7 @@
 import json
 import shutil
 import time
+from functools import lru_cache
 from pathlib import Path
 import numpy as np
 import random
@@ -204,6 +205,7 @@ def load_data(partition_non_id, num_partitions, batch_size, alpha=0.5):
     return trainloader, testloader
 
 
+@lru_cache(maxsize=1)
 def load_centralized_dataset():
     """Load test set and return dataloader."""
     # Load entire test set
