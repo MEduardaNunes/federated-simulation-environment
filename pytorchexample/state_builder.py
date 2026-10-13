@@ -99,6 +99,9 @@ class SimulationEnvironment:
         reward = self.compute_reward(
             current_loss=last_loss,
             selected_clients=clients_selected,
+            w1=1.0,
+            w2=1.0,
+            w3=1.0
         )
 
         self.last_loss = last_loss
@@ -175,13 +178,16 @@ class SimulationEnvironment:
     def compute_reward(self, 
         current_loss: float,
         selected_clients: np.ndarray,
+        w1: float = 1.0,
+        w2: float = 1.0,
+        w3: float = 1.0
     ) -> float:
         # Placeholder for reward computation logic
         reward_acc = current_loss - self.last_loss
         reward_comm = self._reward_communication(selected_clients)
         reward_fair = self._compute_jain_fairness()
 
-        return reward_acc + reward_comm + reward_fair
+        return w1 * reward_acc +  w2 * reward_comm + w3 * reward_fair
 
 class AvailabilitySimulator:
     def __init__(
