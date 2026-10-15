@@ -7,9 +7,11 @@ from functools import lru_cache
 from pathlib import Path
 import numpy as np
 import random
+import gymnasium as gym
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from datasets import DatasetDict, load_dataset, load_from_disk
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import DirichletPartitioner
@@ -18,10 +20,8 @@ from torchvision.transforms import Compose, Normalize, RandomCrop, RandomHorizon
 from flwr.app import (
     ArrayRecord,
     ConfigRecord,
-    Context,
     Message,
     MetricRecord,
-    RecordDict,
 )
 from collections.abc import Iterable
 from flwr.serverapp import Grid
@@ -414,7 +414,6 @@ def _generate_latencies(
 
 def compute_model_size_bytes(model: torch.nn.Module) -> int:
     """Calcula o tamanho total em bytes do modelo neural PyTorch (pesos +
-
     biases).
     """
     return sum(p.numel() * p.element_size() for p in model.parameters())
@@ -495,7 +494,7 @@ class SimulationFedAvg(FedAvg):
         eligible_replies = [
             reply
             for reply in replies
-            if reply.has_error() or bool(reply.content["metrics"]["eligible"])
+            if not reply.has_error() and bool(reply.content["metrics"]["eligible"])
         ]
         return super().aggregate_train(server_round, eligible_replies)
 
@@ -522,3 +521,5 @@ class SimulationFedAvg(FedAvg):
             _count_message_record_bytes(replies)
         )
         return super().aggregate_evaluate(server_round, replies)
+
+

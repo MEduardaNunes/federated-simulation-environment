@@ -104,7 +104,7 @@ def main(grid: Grid, context: Context) -> None:
             weighted_loss += train_loss * num_examples
             total_examples += num_examples
 
-        aggregated = {weighting_key: total_examples}
+        aggregated: dict[str, int | float] = {weighting_key: total_examples}
 
         if total_examples:
             aggregated["train_loss"] = weighted_loss / total_examples

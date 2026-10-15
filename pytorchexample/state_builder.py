@@ -1,6 +1,7 @@
 import math
-
 import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
 
 
 class SimulationEnvironment:
@@ -175,19 +176,21 @@ class SimulationEnvironment:
         fairness_index = (total_participation ** 2) / (self.num_clients * sum_participation_squared)
         return float(np.clip(fairness_index, 0.0, 1.0))
 
-    def compute_reward(self, 
+    def compute_reward(
+        self,
         current_loss: float,
         selected_clients: np.ndarray,
         w1: float = 1.0,
         w2: float = 1.0,
-        w3: float = 1.0
+        w3: float = 1.0,
     ) -> float:
-        # Placeholder for reward computation logic
-        reward_acc = current_loss - self.last_loss
+        """Reward aligned with the optimization goal: lower loss is better."""
+        loss_improvement = self.last_loss - current_loss if self.round > 0 else 0.0
+        reward_acc = loss_improvement
         reward_comm = self._reward_communication(selected_clients)
         reward_fair = self._compute_jain_fairness()
 
-        return w1 * reward_acc +  w2 * reward_comm + w3 * reward_fair
+        return w1 * reward_acc + w2 * reward_comm + w3 * reward_fair
 
 class AvailabilitySimulator:
     def __init__(
@@ -215,7 +218,7 @@ class AvailabilitySimulator:
             (num_clients, k_window), dtype=bool
         )
 
-    def reset(self, seed: int = 42) -> tuple[np.ndarray]:
+    def reset(self, seed: int = 42) -> np.ndarray:
         """Reseta o simulador de disponibilidade para o estado inicial.
 
         Retorna:
@@ -315,3 +318,82 @@ class MDPStateBuilder:
 
         # Atualiza a disponibilidade média a_i
         self.S[:, 3] = mean_availabilities
+
+
+class FederatedEnvironment(gym.Env):
+    def __init__(
+        self,
+        num_clients: int,
+        divergences_kl: np.ndarray,
+        number_of_examples: np.ndarray,
+        costs_communication: np.ndarray,
+        K: int = 10,
+        max_rounds: int = 200,
+        k_window: int = 10,
+        p_on_on: float = 0.8,
+        p_off_on: float = 0.2,
+        seed: int = 42,
+    ):
+        super().__init__()
+        self.num_clients = num_clients
+        self.K = K
+
+        self.sim_env = SimulationEnvironment(
+            num_clients = num_clients,
+            divergences_kl = divergences_kl,
+            number_of_examples = number_of_examples,
+            costs_communication = costs_communication,
+            max_rounds = max_rounds,
+            k_window = k_window,
+            p_on_on = p_on_on,
+            p_off_on = p_off_on,
+            seed = seed,
+        )
+
+        self.observation_space = spaces.Box(
+            low=-math.inf,
+            high=math.inf,
+            shape=(num_clients, 6),
+            dtype=np.float32,
+        )
+
+        self.action_space = spaces.Box(
+            low=-math.inf,
+            high=math.inf,
+            shape=(num_clients,),
+            dtype=np.float32,
+        )
+
+
+    def reset(self, seed: int = 42, options = None):
+        super().reset(seed=seed)
+        obs, info = self.sim_env.reset(seed=seed)
+
+        return obs, info
+        
+
+    def step(self, selected_clients, last_loss=None, accuracy=None, client_losses=None):
+        """Advance the wrapper environment with a selected-client mask."""
+        selected_clients = np.asarray(selected_clients, dtype=bool)
+        if selected_clients.shape != (self.num_clients,):
+            raise ValueError(f"selected_clients must have shape ({self.num_clients},)")
+
+        if last_loss is None:
+            last_loss = self.sim_env.last_loss
+
+        if accuracy is None:
+            accuracy = self.sim_env.last_accuracy
+
+        if client_losses is None:
+            client_losses = np.zeros(self.num_clients, dtype=np.float32)
+        else:
+            client_losses = np.asarray(client_losses, dtype=np.float32)
+            if client_losses.shape != (self.num_clients,):
+                raise ValueError(f"client_losses must have shape ({self.num_clients},)")
+
+        return self.sim_env.step(
+            last_loss=last_loss,
+            accuracy=accuracy,
+            clients_selected=selected_clients,
+            client_losses=client_losses,
+        )
