@@ -4,11 +4,11 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from pytorchexample.task import Net, load_data
-from pytorchexample.task import test as test_fn
-from pytorchexample.task import train as train_fn
-
-from pytorchexample.task import set_seed
+from structure.classes.neural_network import Net
+from structure.utils.data import load_data
+from structure.utils.training import test as test_fn
+from structure.utils.training import train as train_fn
+from structure.utils.common import set_seed
 
 set_seed(42)  # Define a semente para reprodutibilidade
 

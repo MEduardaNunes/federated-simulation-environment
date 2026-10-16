@@ -134,6 +134,7 @@ class SimulationEnvironment:
         """Add Flower record payload bytes, excluding message/transport overhead."""
         if num_bytes < 0:
             raise ValueError("num_bytes must be non-negative")
+        
         self.total_communication_bytes += int(num_bytes)
 
     def get_final_metrics(self) -> tuple[float, float, int]:

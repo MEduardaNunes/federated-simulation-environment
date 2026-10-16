@@ -1,0 +1,7 @@
+{
+  "dataset": "uoft-cs/cifar10",
+  "num_partitions": 4,
+  "alpha": 0.1,
+  "seed": 42,
+  "validation_fraction": 0.2
+}

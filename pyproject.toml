@@ -25,8 +25,8 @@ fab-format-version = 1
 flwr-version-target = "1.31.0"
 
 [tool.flwr.app.components]
-serverapp = "pytorchexample.server_app:app"
-clientapp = "pytorchexample.client_app:app"
+serverapp = "structure.server_app:app"
+clientapp = "structure.client_app:app"
 
 [tool.flwr.app.config]
 num-server-rounds = 5

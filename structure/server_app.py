@@ -2,33 +2,26 @@
 
 import csv
 from pathlib import Path
-
 import numpy as np
 import torch
 from datasets import load_from_disk
-from flwr.app import (
-    ArrayRecord,
-    ConfigRecord,
-    Context,
-    MetricRecord,
-    RecordDict,
-)
+from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 
-from pytorchexample.state_builder import (
-    SimulationEnvironment,
-)
-
-from pytorchexample.task import (
-    Net,
+from structure.classes.federated_classes import SimulationEnvironment
+from structure.classes.custom_strategy import SimulationFedAvg
+from structure.classes.neural_network import Net
+from structure.utils.data import (
     load_centralized_dataset,
     partition_cache_dir,
     prepare_partitions,
-    test,
-    set_seed,
+)
+
+from structure.utils.training import test
+from structure.utils.common import set_seed
+from structure.utils.environment_utils import (
     compute_divergence_kl_for_clients,
     generate_client_communication_costs,
-    SimulationFedAvg,
 )
 
 set_seed(42)  # Define a semente para reprodutibilidade
