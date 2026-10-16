@@ -29,7 +29,8 @@ serverapp = "structure.server_app:app"
 clientapp = "structure.client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 5
+num-server-rounds = 200
+num-clients = 100
 fraction-evaluate = 0.0
 fraction-train = 0.1
 local-epochs = 1

@@ -5,6 +5,12 @@ from flwr.app import Message
 from collections.abc import Iterable
 
 def set_seed(seed: int = 42):
+    """
+    Define uma seed para garantir a reprodutibilidade de um experimento.
+
+    Parâmetro:
+        - seed: valor da seed
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -14,7 +20,15 @@ def set_seed(seed: int = 42):
 
 
 def _count_message_record_bytes(messages: Iterable[Message]) -> int:
-    """Count Flower record payloads, excluding message and transport overhead."""
+    """
+    Calcula o custo das mensagens em bytes.
+
+    Parâmetros:
+        - messages: as mensagens para realizar o cálculo de tamanho.
+
+    Retorna:
+        - a quantidade total de bytes das mensagens.
+    """
     return sum(
         record.count_bytes()
         for message in messages

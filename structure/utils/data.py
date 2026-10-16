@@ -15,21 +15,55 @@ from torchvision.transforms import (
     ToTensor
 )
 
+# Valores de normalização para cada dataset
+values_normalization = {
+    "CIFAR-10": {
+        "mean": (0.4914, 0.4822, 0.4465),
+        "std": (0.2470, 0.2435, 0.2616)
+    },
+}
 
-normalize = Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
+# Componente que normaliza imagens
+normalize = Normalize(
+    values_normalization["CIFAR-10"]["mean"], values_normalization["CIFAR-10"]["std"])
+
+# Transformer para treinamento: faz padding,  rotacionamento horizontal
+# e normaliza imagem
 train_transforms = Compose([RandomCrop(32, padding=4), RandomHorizontalFlip(), ToTensor(), normalize])
+
+# Transformer para validação: normaliza imagem
 eval_transforms = Compose([ToTensor(), normalize])
 
 
 def apply_transforms(batch, transforms):
-    """Apply a split-specific transform to a FederatedDataset batch."""
+    """
+    Aplica um transformer no batch de imagens.
+
+    Parâmetros:
+        - batch: conjunto de imagens
+        - transforms: transformer que controla a transformação da imagem
+
+    Retorna:
+        - batch: novo conjunto de imagens com transformações aplicadas
+    """
     batch["img"] = [transforms(img) for img in batch["img"]]
     return batch
 
 
-def partition_cache_dir(num_partitions, alpha):
-    """Return the on-disk cache location for this partition configuration."""
-    config_name = f"num-{num_partitions}_alpha-{alpha:g}_seed-42"
+def partition_cache_dir(num_partitions, alpha, seed = 42):
+    """
+    Retorna o cache em disco do dataset.
+
+    Parâmetros:
+        - num_partictions: quantidade de partições
+        - alpha: valor de alfa de dirichlet
+        - seed: valor da seed
+
+    Retorna:
+        - O cache em disco do dataset
+    """
+    config_name = f"num-{num_partitions}_alpha-{alpha:g}_seed-{seed}"
+
     return (
         Path(__file__).resolve().parents[1]
         / "data"
@@ -39,7 +73,17 @@ def partition_cache_dir(num_partitions, alpha):
 
 
 def _partition_cache_files_exist(cache_dir, num_partitions):
-    """Check that every persisted split has its metadata and Arrow data."""
+    """
+    Verifica se cada partição do dataset têm seus metadados e dados.
+
+    Parâmetros:
+        - cache_dir: caminho para diretório com as partições
+        - num_partitions: quantidade de partições do dataset
+
+    Retorna:
+        - True se todas partições existem e têm seus metadados e dados,
+        False caso contrário
+    """
     for partition_id in range(num_partitions):
         partition_dir = cache_dir / f"partition-{partition_id}"
         if not (partition_dir / "dataset_dict.json").is_file():
@@ -47,6 +91,7 @@ def _partition_cache_files_exist(cache_dir, num_partitions):
 
         for split in ("train", "test"):
             split_dir = partition_dir / split
+
             if not (
                 (split_dir / "dataset_info.json").is_file()
                 and (split_dir / "state.json").is_file()
@@ -57,8 +102,18 @@ def _partition_cache_files_exist(cache_dir, num_partitions):
     return True
 
 
-def prepare_partitions(num_partitions, alpha=0.5):
-    """Create and persist every train/validation partition for reuse."""
+def prepare_partitions(num_partitions, alpha=0.5, seed = 42):
+    """
+    Cria partição do dataset não-IID e salva em diretório.
+
+    Parâmetros:
+        - num_partitions: número de partições
+        - alpha: valor alfa para divisão com dirichlet
+
+    Retorna:
+        - cache_dir: diretório das partições do dataset
+    """
+
     cache_dir = partition_cache_dir(num_partitions, alpha)
     manifest_path = cache_dir / "manifest.json"
     lock_dir = cache_dir / ".prepare.lock"
@@ -66,11 +121,12 @@ def prepare_partitions(num_partitions, alpha=0.5):
         "dataset": "uoft-cs/cifar10",
         "num_partitions": num_partitions,
         "alpha": alpha,
-        "seed": 42,
+        "seed": seed,
         "validation_fraction": 0.2,
     }
 
     cache_dir.mkdir(parents=True, exist_ok=True)
+
     lock_acquired = False
     for _ in range(1800):
         if manifest_path.is_file() and _partition_cache_files_exist(
@@ -78,6 +134,7 @@ def prepare_partitions(num_partitions, alpha=0.5):
         ):
             with manifest_path.open(encoding="utf-8") as manifest_file:
                 saved_metadata = json.load(manifest_file)
+
             if saved_metadata != metadata:
                 raise ValueError(f"Partition metadata does not match cache: {cache_dir}")
             return cache_dir
@@ -86,6 +143,7 @@ def prepare_partitions(num_partitions, alpha=0.5):
             lock_dir.mkdir()
             lock_acquired = True
             break
+
         except FileExistsError:
             time.sleep(1)
 
@@ -95,9 +153,11 @@ def prepare_partitions(num_partitions, alpha=0.5):
         ):
             with manifest_path.open(encoding="utf-8") as manifest_file:
                 saved_metadata = json.load(manifest_file)
+
             if saved_metadata != metadata:
                 raise ValueError(f"Partition metadata does not match cache: {cache_dir}")
             return cache_dir
+
         raise TimeoutError(
             f"Timed out waiting for partition cache creation at {cache_dir}"
         )
@@ -106,9 +166,11 @@ def prepare_partitions(num_partitions, alpha=0.5):
         cache_is_complete = manifest_path.is_file() and _partition_cache_files_exist(
             cache_dir, num_partitions
         )
+
         if cache_is_complete:
             with manifest_path.open(encoding="utf-8") as manifest_file:
                 saved_metadata = json.load(manifest_file)
+
             if saved_metadata != metadata:
                 raise ValueError(f"Partition metadata does not match cache: {cache_dir}")
         else:
@@ -120,6 +182,7 @@ def prepare_partitions(num_partitions, alpha=0.5):
                 self_balancing=True,
                 seed=42,
             )
+
             federated_dataset = FederatedDataset(
                 dataset=metadata["dataset"],
                 partitioners={"train": partitioner},
@@ -127,8 +190,10 @@ def prepare_partitions(num_partitions, alpha=0.5):
 
             for partition_id in range(num_partitions):
                 partition_dir = cache_dir / f"partition-{partition_id}"
+
                 if partition_dir.exists():
                     shutil.rmtree(partition_dir)
+
                 partition = federated_dataset.load_partition(partition_id)
                 splits = partition.train_test_split(test_size=0.2, seed=42)
                 DatasetDict(
@@ -138,6 +203,7 @@ def prepare_partitions(num_partitions, alpha=0.5):
             manifest_tmp = cache_dir / "manifest.json.tmp"
             with manifest_tmp.open("w", encoding="utf-8") as manifest_file:
                 json.dump(metadata, manifest_file, indent=2)
+
             manifest_tmp.replace(manifest_path)
     finally:
         shutil.rmtree(lock_dir)
@@ -145,15 +211,29 @@ def prepare_partitions(num_partitions, alpha=0.5):
     return cache_dir
 
 
-def load_data(partition_non_id, num_partitions, batch_size, alpha=0.5):
-    """Load one persisted Dirichlet partition of CIFAR10."""
-    cache_dir = prepare_partitions(num_partitions, alpha)
+def load_data(partition_non_id, num_partitions, batch_size, alpha=0.5, seed = 42):
+    """
+    Carrega os dados de uma partição do disco para memória.
 
+    Parâmetros:
+        - partition_non_id: número da partição a ser carregada
+        - num_partitions: quantidade de partições
+        - batch_size: tamanho do batch de treinamento e teste
+        - alpha: valor do alpha de Dirichlet
+        - seed: valor da seed
+
+    Retorna:
+        - trainloader: dataloader de treinamento
+        - testloader: dataloader de teste
+    """
+
+    # Caminho para partição
+    cache_dir = prepare_partitions(num_partitions, alpha, seed)
     partition_train_test = load_from_disk(
         str(cache_dir / f"partition-{partition_non_id}")
     )
 
-    # Construct dataloaders
+    # Construção dos datasets utilizando transformers
     train_dataset = partition_train_test["train"].with_transform(
         lambda batch: apply_transforms(batch, train_transforms)
     )
@@ -161,6 +241,7 @@ def load_data(partition_non_id, num_partitions, batch_size, alpha=0.5):
         lambda batch: apply_transforms(batch, eval_transforms)
     )
     
+    # Dataloader de treinamento e teste
     trainloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True
     )

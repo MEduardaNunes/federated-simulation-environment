@@ -2,8 +2,21 @@ import torch
 
 
 def train(net, trainloader, epochs, lr, device):
-    """Train the model on the training set."""
-    net.to(device)  # move model to GPU if available
+    """
+    Treina o modelo por um número de épocas fornecidas.
+
+    Parâmetros: 
+        - net: modelo a ser treinado
+        - trainloader: dataset de treinamento dividido em batches
+        - epochs: quantidade de rodadas de treinamento
+        - lr: learning rate
+        - device: serviço disponível (CUDA/GPU)
+
+    Retorna:
+        - avg_trainloss: média da loss de treinamento
+        - train_accuracy: acurácia do treinamento
+    """
+    net.to(device)
     criterion = torch.nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
     net.train()
@@ -34,7 +47,18 @@ def train(net, trainloader, epochs, lr, device):
 
 
 def test(net, testloader, device):
-    """Validate the model on the test set."""
+    """
+    Validação do modelo no dataset de validação.
+
+    Parâmetros: 
+        - net: modelo a ser treinado
+        - testloader: dataset de validação dividido em batches
+        - device: serviço disponível (CUDA/GPU)
+
+    Retorna:
+        - loss: loss de validação
+        - accuracy: acurácia de validação
+    """
     net.to(device)
     criterion = torch.nn.CrossEntropyLoss()
     correct, loss = 0, 0.0

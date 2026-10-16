@@ -6,13 +6,14 @@ import torch
 def _divergence_kl(p: np.ndarray, q: np.ndarray) -> float:
     """Calcula a divergência KL entre duas distribuições de probabilidade p e q.
 
-    Args:
-        p (np.ndarray): Distribuição de probabilidade p.
-        q (np.ndarray): Distribuição de probabilidade q.
+    Parâmetros:
+        - p: distribuição de probabilidade p
+        - q: Distribuição de probabilidade q
 
-    Returns:
-        float: Divergência KL D_KL(p || q).
+    Retorna:
+        divergência KL D_KL(p || q)
     """
+
     # Adiciona um pequeno valor para evitar log(0)
     epsilon = 1e-10
     p_safe = np.clip(p, epsilon, 1)
@@ -25,15 +26,15 @@ def _compute_class_proportions(labels, num_classes: int = 10) -> np.ndarray:
     """Calcula a proporção P_i(c) de cada classe c em uma partição de dados do
     cliente i.
 
-    Parametros:
-        labels: Lista, np.ndarray ou torch.Tensor contendo os rótulos do
-        cliente.
-        num_classes: Número total de classes do dataset (padrão: 10 para
-        CIFAR-10).
+    Parâmetros:
+        - labels: Lista, np.ndarray ou torch.Tensor contendo os rótulos do
+        cliente
+        - num_classes: número total de classes do dataset (padrão: 10 para
+        CIFAR-10)
 
     Retorna:
-        np.ndarray de tamanho (num_classes,) com as proporções normalizadas
-        P_i.
+        - array de tamanho (num_classes,) com as proporções normalizadas
+        P_i
     """
     if isinstance(labels, torch.Tensor):
         labels = labels.cpu().numpy()
@@ -57,12 +58,12 @@ def _compute_class_proportions(labels, num_classes: int = 10) -> np.ndarray:
 def _compute_proportions_for_clients(client_labels: list[np.ndarray], num_classes: int = 10) -> np.ndarray:
     """Calcula as proporções P_i(c) para cada cliente i.
 
-    Args:
-        client_labels (list[np.ndarray]): Lista de rótulos de cada cliente.
-        num_classes (int): Número total de classes do dataset.
+    Parâmetros:
+        - client_labels: lista de rótulos de cada cliente
+        - num_classes: número total de classes do dataset
 
-    Returns:
-        np.ndarray: Matriz de proporções P_i(c) para cada cliente.
+    Retorna:
+        - matriz de proporções P_i(c) para cada cliente
     """
     proportions = np.array(
         [_compute_class_proportions(labels, num_classes) for labels in client_labels],
@@ -76,13 +77,13 @@ def compute_divergence_kl_for_clients(
 ) -> np.ndarray:
     """Calcula a divergência KL D_KL(P_i || P_global) para cada cliente i.
 
-    Args:
-        client_labels (list[np.ndarray]): Lista de rótulos de cada cliente.
-        global_labels (np.ndarray): Rótulos globais.
-        num_classes (int): Número total de classes do dataset.
+    Parâmetros:
+        - client_labels: lista de rótulos de cada cliente
+        - global_labels: rótulos globais
+        - num_classes: número total de classes do dataset
 
-    Returns:
-        np.ndarray: Vetor de divergências KL para cada cliente.
+    Retorna:
+        - vetor de divergências KL para cada cliente
     """
 
     global_proportions = _compute_class_proportions(global_labels, num_classes)
@@ -106,8 +107,16 @@ def _generate_bandwidths(
 ) -> np.ndarray:
     """Gera a banda larga B_i para N clientes heterogêneos.
 
-    Retorna os valores convertidos para Bytes/segundo (B/s).
+    Parâmetros:
+        - num_clients: quantidade de clientes
+        - min_mbps: número mínimo de megabits por segundo
+        - max_mbps: número máximo de megabits por segundo
+        - seed: valor da seed
+
+    Retorna:
+        - valores das banda largas para os N clientes, em Bytes/segundo (B/s).
     """
+
     np.random.seed(seed)
     # Sorteia a banda em Megabits por segundo (Mbps)
     bandwidth_mbps = np.random.uniform(min_mbps, max_mbps, size=num_clients)
@@ -126,8 +135,16 @@ def _generate_latencies(
 ) -> np.ndarray:
     """Gera a latência de rede delta_i para N clientes.
 
-    Retorna os valores convertidos para segundos.
+    Parâmetros:
+        - num_clients: quantidade de clientes
+        - min_mbps: número mínimo de milissegundos
+        - max_mbps: número máximo de milissegundos
+        - seed: valor da seed
+
+    Retorna:
+        - os valores de latências para os N clientes, em segundos.
     """
+
     np.random.seed(seed + 100)  # Semente distinta para não alinhar com a banda
     # Sorteia a latência em milissegundos (ms)
     latencies_ms = np.random.uniform(min_ms, max_ms, size=num_clients)
@@ -141,6 +158,12 @@ def _generate_latencies(
 def compute_model_size_bytes(model: torch.nn.Module) -> int:
     """Calcula o tamanho total em bytes do modelo neural PyTorch (pesos +
     biases).
+
+    Parâmetros: 
+        - model: modelo de rede neural
+
+    Retorna:
+        - o valor em bytes do tamanho do modelo
     """
     return sum(p.numel() * p.element_size() for p in model.parameters())
 
@@ -151,12 +174,18 @@ def _compute_communication_costs(
     latencies_sec: np.ndarray,
 ) -> np.ndarray:
     """Calcula o custo c_i (em segundos) para cada cliente conforme a fórmula
+    do MDP: c_i = (|theta| / B_i) + delta_i.
 
-    do MDP:
+    Parâmetros:
+        - model_size_bytes: tamanho do modelo em bytes
+        - bandwidths_bytes_per_sec: valores das bandas largas dos clientes
+        - latencies_sec: valores das latências dos clientes
 
-    c_i = (|theta| / B_i) + delta_i
+    Retorna:
+        - os custos de comunicação para cada cliente.
     """
     costs_sec =  (model_size_bytes / bandwidths_bytes_per_sec) + latencies_sec
+
     return costs_sec.astype(np.float32)
 
 
@@ -165,9 +194,16 @@ def generate_client_communication_costs(
     num_clients: int = 100,
     seed: int = 42,
 ) -> np.ndarray:
-    """Função wrapper para gerar diretamente o vetor c_i de tamanho
+    """Função wrapper para gerar diretamente o vetor de custo de comunicação para
+    todos clientes.
 
-    (num_clients,)
+    Parâmetros:
+        - model: modelo de rede neural
+        - num_clients: número de clientes
+        - seed: valor da seed
+
+    Retorna:
+        - vetor de custos de comunicação, com valor para cada cliente.
     """
     model_bytes = compute_model_size_bytes(model)
     bandwidths = _generate_bandwidths(num_clients, seed=seed)
