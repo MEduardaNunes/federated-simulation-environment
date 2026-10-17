@@ -5,8 +5,8 @@ from gymnasium import spaces
 
 from ..utils.common import set_seed
 
-class SimulationEnvironment:
-
+class SimulationEnvironment(gym.Env):
+    """ Ambiente gymnasium de simulação federada. """
     def __init__(
         self,
         num_clients: int,
@@ -20,7 +20,6 @@ class SimulationEnvironment:
         seed: int = 42,
         rounds_warm_up: int = 20
     ):
-
         # Atributos do ambiente de simulação
         self.num_clients = num_clients
         self.max_rounds = max_rounds
@@ -36,6 +35,7 @@ class SimulationEnvironment:
         self.max_reward_communication_bytes = -math.inf
         self.rounds_warm_up = rounds_warm_up
 
+        # Componentes do ambiente
         self.availability_simulator = AvailabilitySimulator(
             num_clients=num_clients,
             k_window=k_window,
@@ -51,10 +51,42 @@ class SimulationEnvironment:
             costs_communication=costs_communication,
         )
 
+        # Atributos do ambiente gymnasium
+        self.observation_space = spaces.Box(
+            low=-math.inf,
+            high=math.inf,
+            shape=(num_clients, 6),
+            dtype=np.float32,
+        )
+
+        self.action_space = spaces.Box(
+            low=-math.inf,
+            high=math.inf,
+            shape=(num_clients,),
+            dtype=np.float32,
+        )
+
+    @property
+    def eligible_clients_mask(self) -> np.ndarray:
+        """
+        Retorna o vetor de disponibilidade de cada cliente na rodada atual.
+        """
+        return self.availability_simulator.current_inst_avail.copy()
+
     def reset(
         self,
         seed: int = 42,
     ):
+        """
+        Recomeço do ambiente federado, com métricas zeradas.
+
+        Parâmetros: 
+            - seed: valor da seed
+
+        Retorna:
+            - obs: estado de observação do ambeinte
+            - info: informações adicionais, com máscara de clientes elegíveis
+        """
         self.round = 0
         self.last_loss = 0.0
         self.last_accuracy = 0.0
@@ -69,18 +101,33 @@ class SimulationEnvironment:
 
         return obs, info
 
-    @property
-    def eligible_clients_mask(self) -> np.ndarray:
-        """Return the physical availability of each client in the current round."""
-        return self.availability_simulator.current_inst_avail.copy()
-
     def step(
         self,
-        last_loss: float,
+        loss: float,
         accuracy: float,
         clients_selected: np.ndarray,
         client_losses: np.ndarray,
     ):
+        """
+        Passo no ambiente simulado: recebe a ação (clientes selecionados) e atualiza
+        o estado do MDP.
+
+        Parâmetros:
+            - loss: loss global do modelo
+            - accuracy: acurácia global do modelo
+            - clients_selected: clientes selecionados para o treinamento
+            - client_losses: vetor com as perdas dos clientes selecionados
+
+        Retorna:
+            - next_obs: novo estado do MDP, após realizar a ação
+            - reward: recompensa obtida pela ação realizada
+            - done: True se atingiu o número máximo de rodadas, ou False
+            caso contrário
+            - truncated: sempre retorna False
+            - info: informações adicionais do passo realizado, com
+            rodada, bytes comunicados, melhor acurácia global, última
+            acurácia, index de Jain e máscara de clientes selecionados.
+        """
         clients_selected = np.asarray(clients_selected, dtype=bool)
         client_losses = np.asarray(client_losses, dtype=np.float32)
 
@@ -101,12 +148,12 @@ class SimulationEnvironment:
         reward = self.compute_reward(
             current_accuracy=accuracy,
             selected_clients=clients_selected,
-            w1=1.0,
-            w2=1.0,
+            w1=10.0,
+            w2=0.5,
             w3=1.0
         )
 
-        self.last_loss = last_loss
+        self.last_loss = loss
         self.last_accuracy = accuracy
         self.best_global_accuracy = max(self.best_global_accuracy, accuracy)
         self.round += 1
@@ -128,21 +175,42 @@ class SimulationEnvironment:
         return next_obs, reward, done, truncated, info
 
     def get_total_communication_bytes(self) -> int:
-        """Return bytes counted in Flower record payloads sent and received."""
+        """Retorna o total de bytes comunicados por mensagens até então."""
         return self.total_communication_bytes
 
     def record_communication_bytes(self, num_bytes: int) -> None:
-        """Add Flower record payload bytes, excluding message/transport overhead."""
+        """
+        Adiciona bytes de comunicação ao total de bytes comunicados até então.
+        
+        Parâmetros:
+            - num_bytes: quantidade de bytes comunicados na rodada.
+        """
         if num_bytes < 0:
             raise ValueError("num_bytes must be non-negative")
         
         self.total_communication_bytes += int(num_bytes)
 
     def get_final_metrics(self) -> tuple[float, float, int]:
-        """Retorna a melhor acurácia global alcançada até o momento."""
+        """
+        Retorna as métricas finais.
+        
+        Retorna:
+            - melhor acurácia global
+            - última loss global
+            - total de bytes comunicados até então
+        """
         return self.best_global_accuracy, self.last_loss, self.total_communication_bytes
 
     def _reward_communication(self, selected_clients: np.ndarray) -> float:
+        """
+        Cálculo da recompensa de comunicação normalizada.
+
+        Parâmetros:
+            - selected_clients: clientes selecionados na rodada
+
+        Retorna:
+            - recompensa de comunicação normalizada
+        """
         if np.sum(selected_clients) == 0:
             return 0.0
 
@@ -161,7 +229,12 @@ class SimulationEnvironment:
         return normalized_comm_reward
 
     def _compute_jain_fairness(self) -> float:
-        """Compute Jain's fairness index based on the number of times each client participated."""
+        """
+        Computa o índice de Jain de equidade.
+
+        Retorna:
+            - o valor do índice de Jain da rodada.
+        """
         if self.num_clients <= 0:
             return 1.0
 
@@ -182,12 +255,26 @@ class SimulationEnvironment:
         self,
         current_accuracy: float,
         selected_clients: np.ndarray,
-        w1: float = 10.0,
+        w1: float = 1.0,
         w2: float = 1.0,
-        w3: float = 0.5,
+        w3: float = 1.0,
         beta: float = 3.0
     ) -> float:
-        """Reward aligned with the optimization goal: lower loss is better."""
+        """
+        Computa a recompensa da rodada, baseado na acurácia, bytes de comunicação
+        e índice de jain.
+
+        Parâmetros:
+            - current_accuracy: acurácia global da última rodada
+            - selected_clients: máscara de clientes selecionados da última rodada
+            - w1: peso da recompensa de acurácia
+            - w2: peso da recompensa de comunicação
+            - w3: peso da recompensa do índice de Jain
+            - beta: peso para diferença negativa de acurácia
+
+        Retorna:
+            - recompensa total da rodada
+        """
         reward_acc = current_accuracy - self.last_accuracy if self.round > 0 else 0.0
         if reward_acc < 0:
             reward_acc = reward_acc * beta
@@ -198,6 +285,8 @@ class SimulationEnvironment:
         return w1 * reward_acc + w2 * reward_comm + w3 * reward_fair
 
 class AvailabilitySimulator:
+    """ MDP de disponibilidade dos clientes em cada rodada. """
+
     def __init__(
         self,
         num_clients: int,
@@ -242,11 +331,12 @@ class AvailabilitySimulator:
         return self.current_inst_avail
 
     def step(self) -> tuple[np.ndarray, np.ndarray]:
-        """Avança a cadeia de Markov de 2 estados em 1 rodada e atualiza a
-        coluna 3 (a_i).
+        """Avança a cadeia de Markov de 2 estados em 1 rodada.
 
-        Retorna a lista/array binário de clientes fisicamente disponíveis nesta
-        rodada e a média móvel a_i.
+        Retorna:
+            - lista/array binário de clientes fisicamente disponíveis nesta
+            rodada
+            - a média móvel a_i.
         """
         # Sorteia números aleatórios uniformes para cada cliente
         rand_vals = np.random.rand(self.num_clients)
@@ -274,6 +364,7 @@ class AvailabilitySimulator:
 
 
 class MDPStateBuilder:
+    """ Estado do MDP. """
     def __init__(
         self,
         num_clients: int,
@@ -295,7 +386,8 @@ class MDPStateBuilder:
     def reset(self) -> np.ndarray:
         """Reseta a matriz de observação S(t) para o estado inicial.
 
-        Retorna a matriz de observação S(0).
+        Retorna:
+            - a matriz de observação S(0).
         """
         self.S[:, 0] = 0.0  # Loss inicial
         self.S[:, 3] = 1.0  #  Média móvel inicial
@@ -304,7 +396,7 @@ class MDPStateBuilder:
         return self.S
 
     def get_observation_matrix(self) -> np.ndarray:
-        """Return the current per-client observation matrix."""
+        """Retorna a matriz de observação atual S."""
         return self.S
 
     def step(
@@ -313,6 +405,15 @@ class MDPStateBuilder:
         losses: np.ndarray,
         mean_availabilities: np.ndarray,
     ):
+        """
+        Realiza passo no estado no MDP, atualizando a loss, o tempo 
+        desde a última seleção de cada cliente e a média de disponibilidade.
+
+        Parâmetros:
+            - selected_mask: máscara de clientes selecionados
+            - losses: perdas dos clientes selecionados na rodada
+            - mean_availabilities: médias de disponibilidade dos clientes
+        """
         # Atualiza a loss dos selecionados
         self.S[selected_mask, 0] = losses[selected_mask]
 
@@ -322,86 +423,3 @@ class MDPStateBuilder:
 
         # Atualiza a disponibilidade média a_i
         self.S[:, 3] = mean_availabilities
-
-
-class FederatedEnvironment(gym.Env):
-    def __init__(
-        self,
-        num_clients: int,
-        divergences_kl: np.ndarray,
-        number_of_examples: np.ndarray,
-        costs_communication: np.ndarray,
-        K: int = 10,
-        max_rounds: int = 200,
-        k_window: int = 10,
-        p_on_on: float = 0.8,
-        p_off_on: float = 0.2,
-        seed: int = 42,
-    ):
-        super().__init__()
-        set_seed(42)
-        self.num_clients = num_clients
-        self.K = K
-
-        self.sim_env = SimulationEnvironment(
-            num_clients = num_clients,
-            divergences_kl = divergences_kl,
-            number_of_examples = number_of_examples,
-            costs_communication = costs_communication,
-            max_rounds = max_rounds,
-            k_window = k_window,
-            p_on_on = p_on_on,
-            p_off_on = p_off_on,
-            seed = seed,
-        )
-
-        self.observation_space = spaces.Box(
-            low=-math.inf,
-            high=math.inf,
-            shape=(num_clients, 6),
-            dtype=np.float32,
-        )
-
-        self.action_space = spaces.Box(
-            low=-math.inf,
-            high=math.inf,
-            shape=(num_clients,),
-            dtype=np.float32,
-        )
-
-
-    def reset(self, seed: int = 42, options = None):
-        super().reset(seed=seed)
-        obs, info = self.sim_env.reset(seed=seed)
-
-        return obs, info
-        
-
-    def step(self, selected_clients, last_loss=None, accuracy=None, client_losses=None):
-        """Advance the wrapper environment with a selected-client mask."""
-        selected_clients = np.asarray(selected_clients, dtype=bool)
-        if selected_clients.shape != (self.num_clients,):
-            raise ValueError(f"selected_clients must have shape ({self.num_clients},)")
-
-        if last_loss is None:
-            last_loss = self.sim_env.last_loss
-
-        if accuracy is None:
-            accuracy = self.sim_env.last_accuracy
-
-        if client_losses is None:
-            client_losses = np.zeros(self.num_clients, dtype=np.float32)
-        else:
-            client_losses = np.asarray(client_losses, dtype=np.float32)
-            if client_losses.shape != (self.num_clients,):
-                raise ValueError(f"client_losses must have shape ({self.num_clients},)")
-
-        return self.sim_env.step(
-            last_loss=last_loss,
-            accuracy=accuracy,
-            clients_selected=selected_clients,
-            client_losses=client_losses,
-        )
-
-    def get_final_metrics(self):
-        return self.sim_env.get_final_metrics()
