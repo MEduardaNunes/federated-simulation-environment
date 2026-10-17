@@ -29,8 +29,7 @@ def _compute_class_proportions(labels, num_classes: int = 10) -> np.ndarray:
     Parâmetros:
         - labels: Lista, np.ndarray ou torch.Tensor contendo os rótulos do
         cliente
-        - num_classes: número total de classes do dataset (padrão: 10 para
-        CIFAR-10)
+        - num_classes: número total de classes do dataset
 
     Retorna:
         - array de tamanho (num_classes,) com as proporções normalizadas

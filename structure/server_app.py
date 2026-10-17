@@ -10,6 +10,7 @@ from flwr.serverapp import Grid, ServerApp
 from structure.classes.federated_classes import SimulationEnvironment
 from structure.classes.custom_strategy import SimulationFedAvg
 from structure.classes.neural_network import Net
+from structure.utils.dataset_config import DEFAULT_DATASET, get_dataset_config
 from structure.utils.data import (
     load_centralized_dataset,
     partition_cache_dir,
@@ -52,22 +53,31 @@ def main(grid: Grid, context: Context) -> None:
     num_partitions = len(list(grid.get_node_ids()))
     alpha: float = context.run_config["alpha-dirichlet"]
     K : int = context.run_config["K"]
+    dataset = context.run_config.get("dataset", DEFAULT_DATASET)
+    dataset_config = get_dataset_config(dataset)
 
     # Criação das partições em disco e leitura das labels dos dados de cada
     # cliente para cálculo de divergências KL
-    prepare_partitions(num_partitions, alpha)
+    prepare_partitions(num_partitions, alpha, dataset=dataset)
     client_labels = []
     number_of_examples = np.zeros(num_partitions, dtype=np.int64)
     for partition_id in range(num_partitions):
         partition = load_from_disk(
-            str(partition_cache_dir(num_partitions, alpha) / f"partition-{partition_id}")
+            str(
+                partition_cache_dir(
+                    num_partitions, alpha, dataset=dataset
+                )
+                / f"partition-{partition_id}"
+            )
         )
         labels = np.asarray(partition["train"]["label"], dtype=np.int64)
         client_labels.append(labels)
         number_of_examples[partition_id] = len(labels)
 
     global_labels = np.concatenate(client_labels)
-    divergences_kl = compute_divergence_kl_for_clients(client_labels, global_labels)
+    divergences_kl = compute_divergence_kl_for_clients(
+        client_labels, global_labels, dataset_config.num_classes
+    )
 
     with round_metrics_path.open("w", newline="", encoding="utf-8") as metrics_file:
         csv.writer(metrics_file).writerow(
@@ -75,7 +85,7 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     # Carregamento do modelo global
-    global_model = Net()
+    global_model = Net(dataset)
     arrays = ArrayRecord(global_model.state_dict())
 
     sim_env = SimulationEnvironment(
@@ -140,7 +150,13 @@ def main(grid: Grid, context: Context) -> None:
             acurácia global obtida até então
         """
         metrics = global_evaluate(
-            server_round, model_arrays, sim_env, round_client_losses
+            server_round,
+            model_arrays,
+            sim_env,
+            round_client_losses,
+            dataset,
+            num_partitions,
+            alpha,
         )
 
         return metrics
@@ -190,6 +206,9 @@ def global_evaluate(
     arrays: ArrayRecord,
     sim_env: SimulationEnvironment,
     round_client_losses: dict[int, float],
+    dataset: str = DEFAULT_DATASET,
+    num_partitions: int = 100,
+    alpha: float = 0.5,
 ) -> MetricRecord:
     """
     Avalia modelo centralizado com todo o dataset de validação.
@@ -205,13 +224,15 @@ def global_evaluate(
     """
 
     # Carrega o modelo e inicaliza com os pesos recebidos
-    model = Net()
+    model = Net(dataset)
     model.load_state_dict(arrays.to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     # Carregar os dados do modelo
-    test_dataloader = load_centralized_dataset()
+    test_dataloader = load_centralized_dataset(
+        dataset, num_partitions, alpha
+    )
 
     # Avaliação global do modelo
     test_loss, test_acc = test(model, test_dataloader, device)

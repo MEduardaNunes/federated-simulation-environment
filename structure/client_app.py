@@ -3,6 +3,7 @@ from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
 from structure.classes.neural_network import Net
+from structure.utils.dataset_config import DEFAULT_DATASET
 from structure.utils.data import load_data
 from structure.utils.training import test as test_fn
 from structure.utils.training import train as train_fn
@@ -33,6 +34,7 @@ def train(msg: Message, context: Context):
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
+    dataset = context.run_config.get("dataset", DEFAULT_DATASET)
     eligible_clients = msg.content["config"]["eligible-clients-mask"]
    
    # Caso não esteja disponível, retorna sem treinar
@@ -51,7 +53,7 @@ def train(msg: Message, context: Context):
         )
 
     # Carrega o modelo e o atualiza com os pesos recebidos
-    model = Net()
+    model = Net(dataset)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -61,7 +63,13 @@ def train(msg: Message, context: Context):
     alpha_dirichlet = context.run_config["alpha-dirichlet"]
     num_local_epochs = context.run_config["local-epochs"]
 
-    trainloader, _ = load_data(partition_id, num_partitions, batch_size, alpha_dirichlet)
+    trainloader, _ = load_data(
+        partition_id,
+        num_partitions,
+        batch_size,
+        alpha_dirichlet,
+        dataset=dataset,
+    )
 
     # Chama função de treinamento
     train_loss, _ = train_fn(
@@ -106,7 +114,8 @@ def evaluate(msg: Message, context: Context):
     """
 
     # Carrega o modelo e o atualiza com os pesos recebidos
-    model = Net()
+    dataset = context.run_config.get("dataset", DEFAULT_DATASET)
+    model = Net(dataset)
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -116,7 +125,13 @@ def evaluate(msg: Message, context: Context):
     num_partitions = context.node_config["num-partitions"]
     batch_size = context.run_config["batch-size"]
     alpha_dirichlet = context.run_config["alpha-dirichlet"]
-    _, valloader = load_data(partition_id, num_partitions, batch_size, alpha_dirichlet)
+    _, valloader = load_data(
+        partition_id,
+        num_partitions,
+        batch_size,
+        alpha_dirichlet,
+        dataset=dataset,
+    )
 
     # Chamada de validação do modelo sobre os dados do cliente
     eval_loss, _ = test_fn(
