@@ -172,7 +172,7 @@ class SimulationEnvironment(gym.Env):
             "last_accuracy": self.last_accuracy,
             "jain_fairness_index": self._compute_jain_fairness(),
             "eligible_clients_mask": next_eligible_clients,
-            "number_clients_selected": num_clients_selected
+            "number_clients_selected": num_clients_selected.item()
         }
 
         return next_obs, reward, done, truncated, info

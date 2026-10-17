@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "quickstart-pytorch"
-version = "1.1.6"
-description = "Federated Learning with PyTorch and Flower (Quickstart Example)"
+name = "federated-envirenment"
+version = "1.0.0"
+description = "Federated Learning with PyTorch, Flower and Gymnasium"
 license = {file = "LICENSE"}
 dependencies = [
     "flwr[simulation]>=1.28.0",
@@ -20,7 +20,7 @@ dependencies = [
 packages = ["."]
 
 [tool.flwr.app]
-publisher = "flwrlabs"
+publisher = "meduardanunes"
 fab-format-version = 1
 flwr-version-target = "1.31.0"
 
