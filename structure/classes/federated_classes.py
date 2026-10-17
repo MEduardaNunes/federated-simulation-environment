@@ -162,6 +162,8 @@ class SimulationEnvironment(gym.Env):
         done = self.round >= self.max_rounds
         truncated = False
 
+        num_clients_selected = np.sum(clients_selected)
+
         # Informações adicionais sobre o ambiente
         info = {
             "round": self.round,
@@ -170,6 +172,7 @@ class SimulationEnvironment(gym.Env):
             "last_accuracy": self.last_accuracy,
             "jain_fairness_index": self._compute_jain_fairness(),
             "eligible_clients_mask": next_eligible_clients,
+            "number_clients_selected": num_clients_selected
         }
 
         return next_obs, reward, done, truncated, info

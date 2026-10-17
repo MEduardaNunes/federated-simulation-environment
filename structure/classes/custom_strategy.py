@@ -8,9 +8,7 @@ from ..utils.common import _count_message_record_bytes
 
 
 class SimulationFedAvg(FedAvg):
-    """
-    FedAvg customizado para disponibilidade de clientes.
-    """
+    """ FedAvg customizado para disponibilidade de clientes. """
 
     def __init__(self, *args, simulation_environment: SimulationEnvironment, **kwargs):
         super().__init__(*args, **kwargs)
