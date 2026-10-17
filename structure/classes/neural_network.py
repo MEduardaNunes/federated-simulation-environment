@@ -3,7 +3,9 @@ import torch.nn as nn
 
 
 class Net(nn.Module):
-    """Small CIFAR-10 CNN using GroupNorm for federated stability."""
+    """
+    CNN para classificação do dataset CIFAR-10.
+    """
 
     def __init__(self):
         super().__init__()

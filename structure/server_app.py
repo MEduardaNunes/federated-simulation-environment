@@ -1,5 +1,3 @@
-"""pytorchexample: A Flower / PyTorch app."""
-
 import csv
 from pathlib import Path
 import numpy as np
@@ -33,9 +31,17 @@ round_metrics_path = Path.cwd() / "round_metrics.csv"
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    """Main entry point for the ServerApp."""
+    """
+    Entrada principal para o servidor. Coordena o treinamento
+    global.
 
-    # Read run config
+    Parâmetros:
+        - grid: infraestrutura da rede dos nós do sistema Flower
+        - context: contexto da simulação, contendo principais hiperparâmetros
+        para o treinamento 
+    """
+
+    # Leitura da configuração de execução
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_train: float = context.run_config["fraction-train"]
     num_rounds: int = context.run_config["num-server-rounds"]
@@ -43,8 +49,9 @@ def main(grid: Grid, context: Context) -> None:
     num_partitions = len(list(grid.get_node_ids()))
     alpha: float = context.run_config["alpha-dirichlet"]
 
+    # Criação das partições em disco e leitura das labels dos dados de cada
+    # cliente para cálculo de divergências KL
     prepare_partitions(num_partitions, alpha)
-
     client_labels = []
     number_of_examples = np.zeros(num_partitions, dtype=np.int64)
     for partition_id in range(num_partitions):
@@ -63,7 +70,7 @@ def main(grid: Grid, context: Context) -> None:
             ["server_round", "loss", "accuracy"]
         )
 
-    # Load global model
+    # Carregamento do modelo global
     global_model = Net()
     arrays = ArrayRecord(global_model.state_dict())
 
@@ -83,6 +90,17 @@ def main(grid: Grid, context: Context) -> None:
     def aggregate_training_metrics(
         records: list[RecordDict], weighting_key: str
     ) -> MetricRecord:
+        """
+        Agregação das métricas recebidas no treinamento dos clientes
+        selecionados.
+
+        Parâmetros:
+            - records: lista de mensagens com métricas recebidas dos clientes
+            - weighting_key: chave da métrica que será usada para agregar losses.
+
+        Retorna: 
+            - métricas recebidas agregadas
+        """
         round_client_losses.clear()
         weighted_loss = 0.0
         total_examples = 0
@@ -106,13 +124,24 @@ def main(grid: Grid, context: Context) -> None:
 
     
     def evaluate_global_model(server_round: int, model_arrays: ArrayRecord):
+        """
+        Validação do modelo global.
+
+        Parâmetros:
+            - server_round: número da rodada de treinamento
+            - model_arrays: peso e parâmetros do modelo
+
+        Retorna:
+            - métricas da validação do modelo, com acurácia, loss e melhor
+            acurácia global obtida até então
+        """
         metrics = global_evaluate(
             server_round, model_arrays, simulation_env, round_client_losses
         )
 
         return metrics
 
-    # Initialize FedAvg strategy
+    # Inicializa estratégia customizada
     strategy = SimulationFedAvg(
         fraction_evaluate=fraction_evaluate,
         fraction_train=fraction_train,
@@ -120,7 +149,7 @@ def main(grid: Grid, context: Context) -> None:
         simulation_environment=simulation_env,
     )
 
-    # Start strategy, run FedAvg for `num_rounds`
+    # Inicia treinamento com estratégia
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
@@ -130,14 +159,14 @@ def main(grid: Grid, context: Context) -> None:
     )
 
     if context.run_config["save-model"]:
-        # Save final model to disk
+        # Salva modelo final em disco
         print("\nSaving final model to disk...")
         state_dict = result.arrays.to_torch_state_dict()
         torch.save(state_dict, "final_model.pt")
 
+    # Resultado final do treinamento
     best_global_accuracy, final_global_loss, total_bytes = simulation_env.get_final_metrics()
     megabytes = total_bytes / (1024**2)
-
 
     print("\nResumo do treinamento:")
     print(
@@ -158,18 +187,29 @@ def global_evaluate(
     simulation_env: SimulationEnvironment,
     round_client_losses: dict[int, float],
 ) -> MetricRecord:
-    """Evaluate model on central data."""
+    """
+    Avalia modelo centralizado com todo o dataset de validação.
 
-    # Load the model and initialize it with the received weights
+    Parâmetros:
+        - server_round: número da rodada de treinamento
+        - arrays: peso e parâmetros do modelo
+        - simulation_env: ambiente federado do treinamento
+        - round_client_losses: lista de losses dos clientes na rodada
+
+    Retorna:
+        - métricas da validação: acurácia, loss e melhor loss até então
+    """
+
+    # Carrega o modelo e inicaliza com os pesos recebidos
     model = Net()
     model.load_state_dict(arrays.to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # Load entire test set
+    # Carregar os dados do modelo
     test_dataloader = load_centralized_dataset()
 
-    # Evaluate the global model on the test set
+    # Avaliação global do modelo
     test_loss, test_acc = test(model, test_dataloader, device)
 
     if server_round > 0:
@@ -178,6 +218,7 @@ def global_evaluate(
                 [server_round, test_loss, test_acc]
             )
 
+        # Construção da máscara de clientes selecionados e losses
         clients_selected = np.zeros(simulation_env.num_clients, dtype=bool)
         losses = np.zeros(simulation_env.num_clients, dtype=np.float32)
 
@@ -185,6 +226,7 @@ def global_evaluate(
             clients_selected[partition_id] = True
             losses[partition_id] = train_loss
 
+        # Próximo passo no ambiente de simulação
         next_obs, reward, done, truncated, info = simulation_env.step(
             last_loss=test_loss,
             accuracy=test_acc,
@@ -197,7 +239,8 @@ def global_evaluate(
         print(info)
 
     best_global_accuracy, _, _ = simulation_env.get_final_metrics()
-    # Return the evaluation metrics
+
+    # Retorna métricas de validação
     return MetricRecord(
         {
             "accuracy": test_acc,

@@ -1,5 +1,3 @@
-"""pytorchexample: A Flower / PyTorch app."""
-
 import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
@@ -18,12 +16,26 @@ app = ClientApp()
 
 @app.train()
 def train(msg: Message, context: Context):
-    """Train the model on local data."""
+    """
+    Treinamento do modelo com dados locais.
+
+    Parâmetros:
+        - msg: mensagem enviada pelo servidor, contendo máscara de
+        clientes elegíveis
+        - context: contexto do treinamento, com o número do cliente e a
+        quantidade de partições
+
+    Retorna:
+        - mensagem com o modelo treinado e métricas obtidas durante o
+        treinamento, como se o cliente é elegível, a loss do treinamento,
+        número de exemplos do dataset local e número do cliente
+    """
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
     eligible_clients = msg.content["config"]["eligible-clients-mask"]
    
+   # Caso não esteja disponível, retorna sem treinar
     if not eligible_clients[partition_id]:
         metrics = MetricRecord(
             {
@@ -38,20 +50,20 @@ def train(msg: Message, context: Context):
             reply_to=msg,
         )
 
-    # Load the model and initialize it with the received weights
+    # Carrega o modelo e o atualiza com os pesos recebidos
     model = Net()
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # Load the data
+    # Carrega dados do particionamento
     batch_size = context.run_config["batch-size"]
     alpha_dirichlet = context.run_config["alpha-dirichlet"]
     num_local_epochs = context.run_config["local-epochs"]
 
     trainloader, _ = load_data(partition_id, num_partitions, batch_size, alpha_dirichlet)
 
-    # Call the training function
+    # Chama função de treinamento
     train_loss, _ = train_fn(
         model,
         trainloader,
@@ -60,7 +72,7 @@ def train(msg: Message, context: Context):
         device,
     )
 
-    # Construct and return reply Message
+    # Construção da mensagem e retorno para o servidor
     model_record = ArrayRecord(model.state_dict())
     metrics = {
         "eligible": 1,
@@ -80,29 +92,40 @@ def train(msg: Message, context: Context):
 
 @app.evaluate()
 def evaluate(msg: Message, context: Context):
-    """Evaluate the model on local data."""
+    """
+    Validação do modelo global em dados locais.
 
-    # Load the model and initialize it with the received weights
+    Parâmetros:
+        - msg: mensagem enviada pelo servidor
+        - context: contexto do treinamento, com o número do cliente, a
+        quantidade de partições, tamanho do batch e alpha do dirichlet
+
+    Retorna:
+        - mensagem com as métricas obtidas durante o treinamento,
+        como a loss de validação e número de exemplos do dataset local
+    """
+
+    # Carrega o modelo e o atualiza com os pesos recebidos
     model = Net()
     model.load_state_dict(msg.content["arrays"].to_torch_state_dict())
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # Load the data
+    # Carrega dados de validação do cliente
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
     batch_size = context.run_config["batch-size"]
     alpha_dirichlet = context.run_config["alpha-dirichlet"]
     _, valloader = load_data(partition_id, num_partitions, batch_size, alpha_dirichlet)
 
-    # Call the evaluation function
+    # Chamada de validação do modelo sobre os dados do cliente
     eval_loss, _ = test_fn(
         model,
         valloader,
         device,
     )
 
-    # Construct and return reply Message
+    # Construção e retorno da mensagem com métricas para o servidor
     metrics = {
         "eval_loss": eval_loss,
         "num-examples": len(valloader.dataset),

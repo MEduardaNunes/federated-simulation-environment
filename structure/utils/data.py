@@ -252,7 +252,12 @@ def load_data(partition_non_id, num_partitions, batch_size, alpha=0.5, seed = 42
 
 @lru_cache(maxsize=1)
 def load_centralized_dataset():
-    """Load test set and return dataloader."""
+    """
+    Carrega dataset do disco e retorna dataloader.
+
+    Retorna:
+        - dataloader dos dados particionado em batches
+    """
     # Load entire test set
     test_dataset = load_dataset("uoft-cs/cifar10", split="test")
     dataset = test_dataset.with_format("torch").with_transform(

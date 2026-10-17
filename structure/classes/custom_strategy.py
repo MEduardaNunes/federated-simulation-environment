@@ -8,7 +8,9 @@ from ..utils.common import _count_message_record_bytes
 
 
 class SimulationFedAvg(FedAvg):
-    """FedAvg that enforces the simulation environment's client availability."""
+    """
+    FedAvg customizado para disponibilidade de clientes.
+    """
 
     def __init__(self, *args, simulation_environment: SimulationEnvironment, **kwargs):
         super().__init__(*args, **kwargs)
@@ -21,6 +23,20 @@ class SimulationFedAvg(FedAvg):
         config: ConfigRecord,
         grid: Grid,
     ) -> Iterable[Message]:
+        """
+        Configuração de treinamento: envia clientes disponíveis nas mensagens de
+        treinamento e grava bytes de comunicação das mensagens enviadas.
+
+        Parâmetros:
+            - server_round: número da rodada de treinamento
+            - arrays: pesos e parâmetros do modelo
+            - config: hiperparâmetros e configurações do treinamento
+            - grid: infraestrutura da rede dos nós do sistema Flower
+
+        Retorna:
+            - lista de mensagens a serem enviadas aos clientes
+        """
+
         config["eligible-clients-mask"] = (
             self.simulation_environment.eligible_clients_mask.astype(int).tolist()
         )
@@ -33,6 +49,17 @@ class SimulationFedAvg(FedAvg):
     def aggregate_train(
         self, server_round: int, replies: Iterable[Message]
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        """
+        Agregação do treinamento: recebe as respostas dos clientes, aumenta o 
+        número de bytes de comunicação e envia apenas as respostas válidas.
+
+        Parâmetros:
+            - server_round: número da rodada de treinamento
+            - replies: mensagens retornadas pelos clientes
+
+        Retorna:
+            - lista de mensagens retornadas pelos clientes disponíveis
+        """
         replies = list(replies)
         self.simulation_environment.record_communication_bytes(
             _count_message_record_bytes(replies)
@@ -51,6 +78,19 @@ class SimulationFedAvg(FedAvg):
         config: ConfigRecord,
         grid: Grid,
     ) -> Iterable[Message]:
+        """
+        Configuração de validação: envia clientes disponíveis nas mensagens de
+        validação e grava bytes de comunicação das mensagens enviadas.
+
+        Parâmetros:
+            - server_round: número da rodada de validação
+            - arrays: pesos e parâmetros do modelo
+            - config: hiperparâmetros e configurações da validação
+            - grid: infraestrutura da rede dos nós do sistema Flower
+
+        Retorna:
+            - lista de mensagens a serem enviadas aos clientes
+        """
         messages = list(
             super().configure_evaluate(server_round, arrays, config, grid)
         )
@@ -62,6 +102,18 @@ class SimulationFedAvg(FedAvg):
     def aggregate_evaluate(
         self, server_round: int, replies: Iterable[Message]
     ) -> MetricRecord | None:
+        """
+        Agregação da validação: recebe as respostas dos clientes, aumenta o 
+        número de bytes de comunicação e envia as respostas.
+
+        Parâmetros:
+            - server_round: número da rodada de treinamento
+            - replies: mensagens retornadas pelos clientes
+
+        Retorna:
+            - lista de mensagens retornadas pelos clientes 
+        """
+
         replies = list(replies)
         self.simulation_environment.record_communication_bytes(
             _count_message_record_bytes(replies)
