@@ -3,6 +3,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+from ..utils.common import set_seed
 
 class SimulationEnvironment:
 
@@ -98,7 +99,7 @@ class SimulationEnvironment:
 
         # Calcula recompensa
         reward = self.compute_reward(
-            current_loss=last_loss,
+            current_accuracy=accuracy,
             selected_clients=clients_selected,
             w1=1.0,
             w2=1.0,
@@ -179,15 +180,18 @@ class SimulationEnvironment:
 
     def compute_reward(
         self,
-        current_loss: float,
+        current_accuracy: float,
         selected_clients: np.ndarray,
-        w1: float = 1.0,
+        w1: float = 10.0,
         w2: float = 1.0,
-        w3: float = 1.0,
+        w3: float = 0.5,
+        beta: float = 3.0
     ) -> float:
         """Reward aligned with the optimization goal: lower loss is better."""
-        loss_improvement = self.last_loss - current_loss if self.round > 0 else 0.0
-        reward_acc = loss_improvement
+        reward_acc = current_accuracy - self.last_accuracy if self.round > 0 else 0.0
+        if reward_acc < 0:
+            reward_acc = reward_acc * beta
+
         reward_comm = self._reward_communication(selected_clients)
         reward_fair = self._compute_jain_fairness()
 
@@ -239,7 +243,6 @@ class AvailabilitySimulator:
 
     def step(self) -> tuple[np.ndarray, np.ndarray]:
         """Avança a cadeia de Markov de 2 estados em 1 rodada e atualiza a
-
         coluna 3 (a_i).
 
         Retorna a lista/array binário de clientes fisicamente disponíveis nesta
@@ -336,6 +339,7 @@ class FederatedEnvironment(gym.Env):
         seed: int = 42,
     ):
         super().__init__()
+        set_seed(42)
         self.num_clients = num_clients
         self.K = K
 
@@ -398,3 +402,6 @@ class FederatedEnvironment(gym.Env):
             clients_selected=selected_clients,
             client_losses=client_losses,
         )
+
+    def get_final_metrics(self):
+        return self.sim_env.get_final_metrics()

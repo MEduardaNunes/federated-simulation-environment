@@ -6,6 +6,7 @@ from datasets import load_from_disk
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 
+from structure.classes.federated_classes import FederatedEnvironment
 from structure.classes.federated_classes import SimulationEnvironment
 from structure.classes.custom_strategy import SimulationFedAvg
 from structure.classes.neural_network import Net
@@ -48,6 +49,7 @@ def main(grid: Grid, context: Context) -> None:
     lr: float = context.run_config["learning-rate"]
     num_partitions = len(list(grid.get_node_ids()))
     alpha: float = context.run_config["alpha-dirichlet"]
+    K : int = context.run_config["K"]
 
     # Criação das partições em disco e leitura das labels dos dados de cada
     # cliente para cálculo de divergências KL
@@ -74,17 +76,18 @@ def main(grid: Grid, context: Context) -> None:
     global_model = Net()
     arrays = ArrayRecord(global_model.state_dict())
 
-    simulation_env = SimulationEnvironment(
+    federation_env = FederatedEnvironment(
         num_clients=num_partitions,
         divergences_kl=divergences_kl,
         number_of_examples=number_of_examples,
         costs_communication=generate_client_communication_costs(
             global_model, num_partitions
         ),
+        K = K,
         max_rounds=num_rounds,
     )
 
-    simulation_env.reset()
+    federation_env.reset()
     round_client_losses: dict[int, float] = {}
 
     def aggregate_training_metrics(
@@ -136,7 +139,7 @@ def main(grid: Grid, context: Context) -> None:
             acurácia global obtida até então
         """
         metrics = global_evaluate(
-            server_round, model_arrays, simulation_env, round_client_losses
+            server_round, model_arrays, federation_env, round_client_losses
         )
 
         return metrics
@@ -146,7 +149,7 @@ def main(grid: Grid, context: Context) -> None:
         fraction_evaluate=fraction_evaluate,
         fraction_train=fraction_train,
         train_metrics_aggr_fn=aggregate_training_metrics,
-        simulation_environment=simulation_env,
+        simulation_environment=federation_env.sim_env,
     )
 
     # Inicia treinamento com estratégia
@@ -165,13 +168,13 @@ def main(grid: Grid, context: Context) -> None:
         torch.save(state_dict, "final_model.pt")
 
     # Resultado final do treinamento
-    best_global_accuracy, final_global_loss, total_bytes = simulation_env.get_final_metrics()
+    best_global_accuracy, final_global_loss, total_bytes = federation_env.get_final_metrics()
     megabytes = total_bytes / (1024**2)
 
     print("\nResumo do treinamento:")
     print(
         f"Melhor acurácia global: {best_global_accuracy:.4f} "
-        f"({best_global_accuracy * 100:.2f}%))"
+        f"({best_global_accuracy * 100:.2f}%)"
     )
     print(f"Loss global final: {final_global_loss:.6f}")
     print(
@@ -184,7 +187,7 @@ def main(grid: Grid, context: Context) -> None:
 def global_evaluate(
     server_round: int,
     arrays: ArrayRecord,
-    simulation_env: SimulationEnvironment,
+    federated_env: FederatedEnvironment,
     round_client_losses: dict[int, float],
 ) -> MetricRecord:
     """
@@ -193,7 +196,7 @@ def global_evaluate(
     Parâmetros:
         - server_round: número da rodada de treinamento
         - arrays: peso e parâmetros do modelo
-        - simulation_env: ambiente federado do treinamento
+        - federated_env: ambiente do gymnasium federado do treinamento
         - round_client_losses: lista de losses dos clientes na rodada
 
     Retorna:
@@ -219,18 +222,18 @@ def global_evaluate(
             )
 
         # Construção da máscara de clientes selecionados e losses
-        clients_selected = np.zeros(simulation_env.num_clients, dtype=bool)
-        losses = np.zeros(simulation_env.num_clients, dtype=np.float32)
+        clients_selected = np.zeros(federated_env.num_clients, dtype=bool)
+        losses = np.zeros(federated_env.num_clients, dtype=np.float32)
 
         for partition_id, train_loss in round_client_losses.items():
             clients_selected[partition_id] = True
             losses[partition_id] = train_loss
 
         # Próximo passo no ambiente de simulação
-        next_obs, reward, done, truncated, info = simulation_env.step(
+        next_obs, reward, done, truncated, info = federated_env.step(
             last_loss=test_loss,
             accuracy=test_acc,
-            clients_selected=clients_selected,
+            selected_clients=clients_selected,
             client_losses=losses,
         )
         round_client_losses.clear()
@@ -238,7 +241,7 @@ def global_evaluate(
         print(f"Recompensa da rodada {server_round}: {reward:.4f}")
         print(info)
 
-    best_global_accuracy, _, _ = simulation_env.get_final_metrics()
+    best_global_accuracy, _, _ = federated_env.get_final_metrics()
 
     # Retorna métricas de validação
     return MetricRecord(
