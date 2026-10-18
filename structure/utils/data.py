@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 from flwr_datasets import FederatedDataset
-from flwr_datasets.partitioner import DirichletPartitioner, NaturalIdPartitioner
+from flwr_datasets.partitioner import DirichletPartitioner, IidPartitioner
 from torch.utils.data import DataLoader
 from torchvision.transforms import (
     Compose,
@@ -63,7 +63,7 @@ def partition_cache_dir(
         config_name = f"{dataset.lower()}_{config_name}"
 
     return (
-        Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[2]
         / "data"
         / "federated_partitions"
         / config_name
@@ -185,9 +185,10 @@ def prepare_partitions(
                     self_balancing=True,
                     seed=seed,
                 )
-            else:
-                partitioner = NaturalIdPartitioner(
-                    partition_by="writer_id"
+
+            elif config.partitioning == "IidPartitioner":
+                partitioner = IidPartitioner(
+                    num_partitions=num_partitions,
                 )
 
             federated_dataset = FederatedDataset(

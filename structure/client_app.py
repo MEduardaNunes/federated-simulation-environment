@@ -98,9 +98,8 @@ def train(msg: Message, context: Context):
     return Message(content=content, reply_to=msg)
 
 
-@app.evaluate()
+""" @app.evaluate()
 def evaluate(msg: Message, context: Context):
-    """
     Validação do modelo global em dados locais.
 
     Parâmetros:
@@ -111,7 +110,6 @@ def evaluate(msg: Message, context: Context):
     Retorna:
         - mensagem com as métricas obtidas durante o treinamento,
         como a loss de validação e número de exemplos do dataset local
-    """
 
     # Carrega o modelo e o atualiza com os pesos recebidos
     dataset = context.run_config.get("dataset", DEFAULT_DATASET)
@@ -148,4 +146,4 @@ def evaluate(msg: Message, context: Context):
     metric_record = MetricRecord(metrics)
     content = RecordDict({"metrics": metric_record})
 
-    return Message(content=content, reply_to=msg)
+    return Message(content=content, reply_to=msg) """

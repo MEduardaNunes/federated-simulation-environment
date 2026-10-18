@@ -14,7 +14,7 @@ class DatasetConfig:
     partitioning: Literal["dirichlet", "natural_id"]
 
 
-DEFAULT_DATASET = "CIFAR-10"
+DEFAULT_DATASET = "CIFAR-10_NO_IID"
 
 DATASETS = {
     "CIFAR-10_IID": DatasetConfig(
