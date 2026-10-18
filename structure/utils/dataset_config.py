@@ -17,7 +17,17 @@ class DatasetConfig:
 DEFAULT_DATASET = "CIFAR-10"
 
 DATASETS = {
-    "CIFAR-10": DatasetConfig(
+    "CIFAR-10_IID": DatasetConfig(
+        hub_id="uoft-cs/cifar10",
+        image_column="img",
+        label_column="label",
+        input_channels=3,
+        num_classes=10,
+        mean=(0.4914, 0.4822, 0.4465),
+        std=(0.2470, 0.2435, 0.2616),
+        partitioning="IidPartitioner",
+    ),
+    "CIFAR-10_NO_IID": DatasetConfig(
         hub_id="uoft-cs/cifar10",
         image_column="img",
         label_column="label",
@@ -27,7 +37,17 @@ DATASETS = {
         std=(0.2470, 0.2435, 0.2616),
         partitioning="dirichlet",
     ),
-    "FEMNIST": DatasetConfig(
+    "FEMNIST_IID": DatasetConfig(
+        hub_id="flwrlabs/femnist",
+        image_column="image",
+        label_column="character",
+        input_channels=1,
+        num_classes=62,
+        mean=(0.1307,),
+        std=(0.3081,),
+        partitioning="IidPartitioner",
+    ),
+    "FEMNIST_NO_IID": DatasetConfig(
         hub_id="flwrlabs/femnist",
         image_column="image",
         label_column="character",
