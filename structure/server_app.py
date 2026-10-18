@@ -74,14 +74,13 @@ def main(grid: Grid, context: Context) -> None:
         client_labels.append(labels)
         number_of_examples[partition_id] = len(labels)
 
-    global_labels = np.concatenate(client_labels)
     divergences_kl = compute_divergence_kl_for_clients(
-        client_labels, global_labels, dataset_config.num_classes
+        client_labels, dataset_config.num_classes
     )
 
     with round_metrics_path.open("w", newline="", encoding="utf-8") as metrics_file:
         csv.writer(metrics_file).writerow(
-            ["server_round", "loss", "accuracy"]
+            ["server_round", "loss", "accuracy", "total_bytes_comunication"]
         )
 
     # Carregamento do modelo global
@@ -236,11 +235,12 @@ def global_evaluate(
 
     # Avaliação global do modelo
     test_loss, test_acc = test(model, test_dataloader, device)
+    comm_bytes = sim_env.get_total_communication_bytes()
 
     if server_round > 0:
         with round_metrics_path.open("a", newline="", encoding="utf-8") as metrics_file:
             csv.writer(metrics_file).writerow(
-                [server_round, test_loss, test_acc]
+                [server_round, test_loss, test_acc, comm_bytes]
             )
 
         # Construção da máscara de clientes selecionados e losses

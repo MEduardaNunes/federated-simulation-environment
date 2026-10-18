@@ -14,86 +14,73 @@ def _divergence_kl(p: np.ndarray, q: np.ndarray) -> float:
         divergência KL D_KL(p || q)
     """
 
-    # Adiciona um pequeno valor para evitar log(0)
-    epsilon = 1e-10
-    p_safe = np.clip(p, epsilon, 1)
-    q_safe = np.clip(q, epsilon, 1)
+    positive_classes = p > 0
+    if np.any(q[positive_classes] == 0):
+        return float("inf")
 
-    return np.sum(p_safe * np.log(p_safe / q_safe))
-
-
-def _compute_class_proportions(labels, num_classes: int = 10) -> np.ndarray:
-    """Calcula a proporção P_i(c) de cada classe c em uma partição de dados do
-    cliente i.
-
-    Parâmetros:
-        - labels: Lista, np.ndarray ou torch.Tensor contendo os rótulos do
-        cliente
-        - num_classes: número total de classes do dataset
-
-    Retorna:
-        - array de tamanho (num_classes,) com as proporções normalizadas
-        P_i
-    """
-    if isinstance(labels, torch.Tensor):
-        labels = labels.cpu().numpy()
-
-    elif isinstance(labels, list):
-        labels = np.array(labels)
-
-    # Caso a partição esteja vazia
-    if len(labels) == 0:
-        return np.full(num_classes, 1.0 / num_classes, dtype=np.float32)
-
-    # Conta a frequência de cada classe de 0 até num_classes - 1
-    counts = np.bincount(labels, minlength=num_classes)
-
-    # Converte para frequências relativas (proporções)
-    proportions = counts / len(labels)
-
-    return proportions.astype(np.float32)
-
-
-def _compute_proportions_for_clients(client_labels: list[np.ndarray], num_classes: int = 10) -> np.ndarray:
-    """Calcula as proporções P_i(c) para cada cliente i.
-
-    Parâmetros:
-        - client_labels: lista de rótulos de cada cliente
-        - num_classes: número total de classes do dataset
-
-    Retorna:
-        - matriz de proporções P_i(c) para cada cliente
-    """
-    proportions = np.array(
-        [_compute_class_proportions(labels, num_classes) for labels in client_labels],
-        dtype=np.float32,
+    divergence = np.sum(
+        p[positive_classes]
+        * np.log(p[positive_classes] / q[positive_classes])
     )
-    return proportions
+    return float(max(divergence, 0.0))
+
+
+def _compute_class_counts(labels, num_classes: int) -> np.ndarray:
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().numpy()
+    else:
+        labels = np.asarray(labels)
+
+    labels = labels.reshape(-1)
+    if labels.size == 0:
+        raise ValueError("Cannot compute class proportions from empty labels.")
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise TypeError("Labels must contain integer class indices.")
+    if np.any(labels < 0) or np.any(labels >= num_classes):
+        raise ValueError(
+            f"Labels must be in the range [0, {num_classes - 1}]."
+        )
+
+    return np.bincount(labels, minlength=num_classes)
 
 
 def compute_divergence_kl_for_clients(
-    client_labels: list[np.ndarray], global_labels: np.ndarray, num_classes: int = 10
+    client_labels: list[np.ndarray], num_classes: int = 10
 ) -> np.ndarray:
     """Calcula a divergência KL D_KL(P_i || P_global) para cada cliente i.
 
     Parâmetros:
         - client_labels: lista de rótulos de cada cliente
-        - global_labels: rótulos globais
         - num_classes: número total de classes do dataset
+
+    A distribuição global é calculada pela soma das contagens de todas as
+    partições, ponderando cada cliente pelo número de exemplos.
 
     Retorna:
         - vetor de divergências KL para cada cliente
     """
 
-    global_proportions = _compute_class_proportions(global_labels, num_classes)
-    client_proportions = _compute_proportions_for_clients(client_labels, num_classes)
+    if num_classes <= 0:
+        raise ValueError("num_classes must be greater than zero.")
+    if not client_labels:
+        raise ValueError("At least one client partition is required.")
+
+    client_counts = np.stack(
+        [
+            _compute_class_counts(labels, num_classes)
+            for labels in client_labels
+        ]
+    )
+    global_counts = client_counts.sum(axis=0)
+    global_proportions = global_counts / global_counts.sum()
+    client_proportions = client_counts / client_counts.sum(axis=1, keepdims=True)
 
     divergences = np.array(
         [
             _divergence_kl(client_prop, global_proportions)
             for client_prop in client_proportions
         ],
-        dtype=np.float32,
+        dtype=np.float64,
     )
     return divergences
 
