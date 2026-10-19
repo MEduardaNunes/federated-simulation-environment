@@ -59,14 +59,15 @@ class SimulationFedAvg(FedAvg):
             - lista de mensagens retornadas pelos clientes disponíveis
         """
         replies = list(replies)
-        self.simulation_environment.record_communication_bytes(
-            _count_message_record_bytes(replies)
-        )
         eligible_replies = [
             reply
             for reply in replies
             if not reply.has_error() and bool(reply.content["metrics"]["eligible"])
         ]
+        self.simulation_environment.record_communication_bytes(
+            _count_message_record_bytes(eligible_replies)
+        )
+        
         return super().aggregate_train(server_round, eligible_replies)
 
     def configure_evaluate(

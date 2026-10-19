@@ -9,7 +9,7 @@ from datetime import datetime
 import shutil
 
 
-def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
+def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Cria o caminho subpasta/horario (ex: plots/2026-10-18_16-14-56)
@@ -51,7 +51,6 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
         y="loss",
         marker="o",
         linewidth=2.5,
-        color="#D55E00",
         ax=ax,
     )
     ax.set_title(
@@ -63,16 +62,7 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     ax.set_xlabel("Rodada do Servidor (Server Round)")
     ax.set_ylabel("Perda Global (Loss)")
     ax.set_xticks(df["server_round"])
-    for x, y in zip(df["server_round"], df["loss"]):
-        ax.annotate(
-            f"{y:.3f}",
-            (x, y),
-            textcoords="offset points",
-            xytext=(0, 8),
-            ha="center",
-            fontsize=9,
-            fontweight="bold",
-        )
+
     sns.despine()
     plt.tight_layout()
     fig.savefig(
@@ -92,7 +82,6 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
         y="accuracy",
         marker="o",
         linewidth=2.5,
-        color="#0072B2",
         ax=ax,
     )
     ax.set_title(
@@ -105,16 +94,6 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     ax.set_ylabel("Acurácia Top-1")
     ax.set_xticks(df["server_round"])
     ax.set_ylim(0, max(df["accuracy"]) * 1.25)
-    for x, y in zip(df["server_round"], df["accuracy"]):
-        ax.annotate(
-            f"{y*100:.2f}%",
-            (x, y),
-            textcoords="offset points",
-            xytext=(0, 8),
-            ha="center",
-            fontsize=9,
-            fontweight="bold",
-        )
     sns.despine()
     plt.tight_layout()
     fig.savefig(
@@ -128,8 +107,13 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     # Gráfico 3: Tráfego de Comunicação (MB)
     # -------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(8, 5))
-    sns.barplot(
-        data=df, x="server_round", y="total_mb_comunication", color="#009E73", ax=ax
+    sns.lineplot(
+        data=df,
+        x="server_round",
+        y="total_mb_comunication",
+        marker="o",
+        linewidth=2.5,
+        ax=ax
     )
     ax.set_title(
         "Comunicação Acumulada por Rodada (MB)",
@@ -139,18 +123,7 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     )
     ax.set_xlabel("Rodada do Servidor (Server Round)")
     ax.set_ylabel("Total de Dados Transmitidos (MB)")
-    for p in ax.patches:
-        height = p.get_height()
-        ax.annotate(
-            f"{height:.2f} MB",
-            (p.get_x() + p.get_width() / 2.0, height),
-            ha="center",
-            va="bottom",
-            fontsize=9,
-            fontweight="bold",
-            xytext=(0, 3),
-            textcoords="offset points",
-        )
+
     sns.despine()
     plt.tight_layout()
     fig.savefig(
@@ -178,7 +151,6 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
         y="loss",
         marker="o",
         linewidth=2.5,
-        color="#D55E00",
         ax=axes[0],
     )
     axes[0].set_title("Perda Global (Loss)", fontsize=12, fontweight="bold")
@@ -193,7 +165,6 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
         y="accuracy",
         marker="o",
         linewidth=2.5,
-        color="#0072B2",
         ax=axes[1],
     )
     axes[1].set_title(
@@ -204,11 +175,12 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     axes[1].set_xticks(df["server_round"])
 
     # Subplot 3: Communication
-    sns.barplot(
+    sns.lineplot(
         data=df,
         x="server_round",
         y="total_mb_comunication",
-        color="#009E73",
+        marker="o",
+        linewidth=2.5,
         ax=axes[2],
     )
     axes[2].set_title(
