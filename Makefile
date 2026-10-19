@@ -1,0 +1,2 @@
+run:
+	flwr run . --stream

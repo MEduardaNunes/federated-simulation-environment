@@ -23,6 +23,7 @@ from structure.utils.environment_utils import (
     compute_divergence_kl_for_clients,
     generate_client_communication_costs,
 )
+from structure.utils.generate_plots import *
 
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"]="0"
@@ -198,6 +199,8 @@ def main(grid: Grid, context: Context) -> None:
         "(sem overhead do transporte): "
         f"{megabytes:.2f} MB"
     )
+
+    generate_plots()
 
 
 def global_evaluate(

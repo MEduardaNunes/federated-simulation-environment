@@ -1,5 +1,7 @@
 import os
 import sys
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -20,6 +22,11 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
         shutil.copy2(csv_path, metrics_copy_path)
         print(f"Arquivo de métricas copiado para: {metrics_copy_path}")
 
+    # Copiar configurações do treinamento
+    toml_path = "pyproject.toml"
+    if os.path.exists(toml_path):
+        shutil.copy2(toml_path, os.path.join(output_dir, "pyproject.toml"))
+        print(f"Configurações copiadas para: {output_dir}/pyproject.toml")
 
     # Leitura dos dados
     df = pd.read_csv(csv_path)
@@ -220,8 +227,3 @@ def generate_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
     plt.close()
 
     print("Todos os gráficos foram salvos com sucesso!")
-
-
-if __name__ == "__main__":
-    csv_input = sys.argv[1] if len(sys.argv) > 1 else "round_metrics.csv"
-    generate_plots(csv_input)
