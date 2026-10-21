@@ -21,7 +21,7 @@ def set_seed(seed: int = 42):
 
 def _count_message_record_bytes(messages: Iterable[Message]) -> int:
     """
-    Calcula o custo das mensagens em bytes.
+    Calcula o custo das mensagens em bytes, apenas para os pesos enviados.
 
     Parâmetros:
         - messages: as mensagens para realizar o cálculo de tamanho.
