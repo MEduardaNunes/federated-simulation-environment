@@ -11,7 +11,7 @@ import shutil
 
 def save_config_metrics_and_plots(
     csv_path="round_metrics.csv", 
-    output_dir_base="plots"
+    output_dir_base="results"
 ):
     """
     Cria uma pasta com a data atual, salva as métricas obtidas durante o treinamento,
