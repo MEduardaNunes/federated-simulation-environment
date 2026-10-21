@@ -8,7 +8,7 @@ from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDic
 from flwr.serverapp import Grid, ServerApp
 
 from structure.classes.federated_classes import SimulationEnvironment
-from structure.classes.custom_strategy import SimulationFedAvg
+from structure.classes.custom_strategy import *
 from structure.classes.neural_network import Net
 from structure.utils.dataset_config import DEFAULT_DATASET, get_dataset_config
 from structure.utils.data import (
@@ -162,12 +162,39 @@ def main(grid: Grid, context: Context) -> None:
         return metrics
 
     # Inicializa estratégia customizada
-    strategy = SimulationFedAvg(
-        fraction_evaluate=fraction_evaluate,
-        fraction_train=fraction_train,
-        train_metrics_aggr_fn=aggregate_training_metrics,
-        simulation_environment=sim_env,
-    )
+    strategy_name = context.run_config["strategy"]
+
+    if strategy_name == "FedAvg":
+        strategy = SimulationFedAvg(
+            fraction_evaluate=fraction_evaluate,
+            fraction_train=fraction_train,
+            train_metrics_aggr_fn=aggregate_training_metrics,
+            simulation_environment=sim_env,
+        )
+
+    elif strategy_name == "FedProx":
+        proximal_mu = context.run_config["proximal-mu"]
+        strategy = SimulationFedProx(
+            fraction_evaluate=fraction_evaluate,
+            fraction_train=fraction_train,
+            train_metrics_aggr_fn=aggregate_training_metrics,
+            simulation_environment=sim_env,
+            proximal_mu=proximal_mu
+        )
+
+    elif strategy_name == "POC":
+        d = context.run_config["d"]
+        strategy = SimulationPowerOfChoice(
+            fraction_evaluate=fraction_evaluate,
+            fraction_train=d,
+            train_metrics_aggr_fn=aggregate_training_metrics,
+            num_selected=K,
+            simulation_environment=sim_env,
+        )
+
+    else:
+        print("Estratégia não conhecida")
+        return 0
 
     # Inicia treinamento com estratégia
     result = strategy.start(

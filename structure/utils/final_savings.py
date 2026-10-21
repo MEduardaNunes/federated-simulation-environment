@@ -9,24 +9,33 @@ from datetime import datetime
 import shutil
 
 
-def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base="plots"):
+def save_config_metrics_and_plots(
+    csv_path="round_metrics.csv", 
+    output_dir_base="plots"
+):
+    """
+    Cria uma pasta com a data atual, salva as métricas obtidas durante o treinamento,
+    o arquivo de configuração, e os plots finais (acurácia, loss e bytes de comunicação).
+
+    Parâmetros:
+        - csv_path: caminho para o arquivo csv com as métricas do treinamento.
+        - output_dir_base: caminho para a pasta onde serão salvos os resultados;
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # Cria o caminho subpasta/horario (ex: plots/2026-10-18_16-14-56)
     output_dir = os.path.join(output_dir_base, timestamp)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Copiar o próprio arquivo de métricas .csv para dentro da pasta da execução
+    # Copia o arquivo de métricas .csv do treinamento
     if os.path.exists(csv_path):
         metrics_copy_path = os.path.join(output_dir, os.path.basename(csv_path))
         shutil.copy2(csv_path, metrics_copy_path)
-        print(f"Arquivo de métricas copiado para: {metrics_copy_path}")
 
-    # Copiar configurações do treinamento
+    # Copia o arquivo de configurações do treinamento
     toml_path = "pyproject.toml"
     if os.path.exists(toml_path):
         shutil.copy2(toml_path, os.path.join(output_dir, "pyproject.toml"))
-        print(f"Configurações copiadas para: {output_dir}/pyproject.toml")
 
     # Leitura dos dados
     df = pd.read_csv(csv_path)
@@ -49,7 +58,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="loss",
-        marker="o",
         linewidth=2.5,
         ax=ax,
     )
@@ -80,7 +88,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="accuracy",
-        marker="o",
         linewidth=2.5,
         ax=ax,
     )
@@ -111,7 +118,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="total_mb_comunication",
-        marker="o",
         linewidth=2.5,
         ax=ax
     )
@@ -149,7 +155,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="loss",
-        marker="o",
         linewidth=2.5,
         ax=axes[0],
     )
@@ -163,7 +168,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="accuracy",
-        marker="o",
         linewidth=2.5,
         ax=axes[1],
     )
@@ -179,7 +183,6 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
         data=df,
         x="server_round",
         y="total_mb_comunication",
-        marker="o",
         linewidth=2.5,
         ax=axes[2],
     )
@@ -198,4 +201,4 @@ def save_config_metrics_and_plots(csv_path="round_metrics.csv", output_dir_base=
     )
     plt.close()
 
-    print("Todos os gráficos foram salvos com sucesso!")
+    print("Métricas, configurações e plots salvos com sucesso.")
