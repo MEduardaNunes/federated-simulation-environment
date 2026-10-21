@@ -36,6 +36,7 @@ local-epochs = 1
 learning-rate = 0.05
 batch-size = 64
 save-model = false
+save-result = true
 alpha-dirichlet = 0.1
 K = 10
 dataset = "CIFAR-10_NO_IID"

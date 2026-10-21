@@ -215,19 +215,18 @@ def main(grid: Grid, context: Context) -> None:
     best_global_accuracy, final_global_loss, total_bytes = sim_env.get_final_metrics()
     megabytes = total_bytes / (1024**2)
 
-    print("\nResumo do treinamento:")
-    print(
-        f"Melhor acurácia global: {best_global_accuracy:.4f} "
-        f"({best_global_accuracy * 100:.2f}%)"
-    )
-    print(f"Loss global final: {final_global_loss:.6f}")
-    print(
-        "Dados contabilizados nos registros Flower "
-        "(sem overhead do transporte): "
-        f"{megabytes:.2f} MB"
+    print(f"\nResumo do treinamento:"
+          f"Melhor acurácia global: {best_global_accuracy:.4f} "
+          f"({best_global_accuracy * 100:.2f}%)"
+          f"Loss global final: {final_global_loss:.6f}"
+          "Total de bytes de comunicação "
+          f"{megabytes:.2f} MB"
     )
 
-    save_config_metrics_and_plots()
+    # Escrita dos resultados finais em disco
+    save_result = context.run_config["save-result"]
+    if save_result:
+        save_config_metrics_and_plots()
 
 
 def global_evaluate(
