@@ -34,4 +34,5 @@ def _count_message_record_bytes(messages: Iterable[Message]) -> int:
         for message in messages
         if not message.has_error()
         for record in message.content.values()
+        if isinstance(record, ArrayRecord)
     )
