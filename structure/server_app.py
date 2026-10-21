@@ -45,20 +45,13 @@ def main(grid: Grid, context: Context) -> None:
         - context: contexto da simulação, contendo principais hiperparâmetros
         para o treinamento 
     """
-
-    # Leitura da configuração de execução
-    fraction_evaluate: float = context.run_config["fraction-evaluate"]
-    fraction_train: float = context.run_config["fraction-train"]
-    num_rounds: int = context.run_config["num-server-rounds"]
-    lr: float = context.run_config["learning-rate"]
+    # Criação das partições em disco e leitura das labels dos dados de cada
+    # cliente para cálculo de divergências KL
     num_partitions = len(list(grid.get_node_ids()))
     alpha: float = context.run_config["alpha-dirichlet"]
-    K : int = context.run_config["K"]
     dataset = context.run_config.get("dataset", DEFAULT_DATASET)
     dataset_config = get_dataset_config(dataset)
 
-    # Criação das partições em disco e leitura das labels dos dados de cada
-    # cliente para cálculo de divergências KL
     prepare_partitions(num_partitions, alpha, dataset=dataset)
     client_labels = []
     number_of_examples = np.zeros(num_partitions, dtype=np.int64)
@@ -85,6 +78,8 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     # Carregamento do modelo global
+    num_rounds: int = context.run_config["num-server-rounds"]
+
     global_model = Net(dataset)
     arrays = ArrayRecord(global_model.state_dict())
 
@@ -162,9 +157,12 @@ def main(grid: Grid, context: Context) -> None:
         return metrics
 
     # Inicializa estratégia customizada
+    fraction_evaluate: float = context.run_config["fraction-evaluate"]
     strategy_name = context.run_config["strategy"]
 
     if strategy_name == "FedAvg":
+        fraction_train: float = context.run_config["fraction-train"]
+
         strategy = SimulationFedAvg(
             fraction_evaluate=fraction_evaluate,
             fraction_train=fraction_train,
@@ -173,7 +171,9 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     elif strategy_name == "FedProx":
+        fraction_train: float = context.run_config["fraction-train"]
         proximal_mu = context.run_config["proximal-mu"]
+        
         strategy = SimulationFedProx(
             fraction_evaluate=fraction_evaluate,
             fraction_train=fraction_train,
@@ -184,6 +184,8 @@ def main(grid: Grid, context: Context) -> None:
 
     elif strategy_name == "POC":
         d = context.run_config["d"]
+        K : int = context.run_config["K"]
+        
         strategy = SimulationPowerOfChoice(
             fraction_evaluate=fraction_evaluate,
             fraction_train=d,
@@ -197,6 +199,8 @@ def main(grid: Grid, context: Context) -> None:
         return 0
 
     # Inicia treinamento com estratégia
+    lr: float = context.run_config["learning-rate"]
+
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,

@@ -41,5 +41,5 @@ alpha-dirichlet = 0.1
 K = 10
 dataset = "CIFAR-10_NO_IID"
 strategy = "POC"
-proximal-mu = 0.1
+proximal-mu = 0.75
 d = 0.3

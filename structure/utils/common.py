@@ -1,8 +1,9 @@
 import numpy as np
 import random
 import torch
-from flwr.app import Message
+from flwr.app import Message, ArrayRecord
 from collections.abc import Iterable
+
 
 def set_seed(seed: int = 42):
     """

@@ -84,6 +84,8 @@ def save_config_metrics_and_plots(
     # Gráfico 2: Evolução da Acurácia
     # -------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(8, 5))
+    max_acc = df["accuracy"].max()
+    max_round = df.loc[df["accuracy"].idxmax(), "server_round"]
     sns.lineplot(
         data=df,
         x="server_round",
@@ -91,6 +93,24 @@ def save_config_metrics_and_plots(
         linewidth=2.5,
         ax=ax,
     )
+
+    ax.axhline(
+        y=max_acc, 
+        color="#D55E00", 
+        linestyle="--", 
+        linewidth=1.5, 
+        alpha=0.85
+    )
+
+    ax.text(
+        x=df["server_round"].min(), 
+        y=max_acc + (max_acc * 0.02), # Pequeno deslocamento vertical acima da linha
+        s=f"Acurácia Máxima: {max_acc * 100:.2f}% (Rodada {int(max_round)})", 
+        color="#D55E00", 
+        fontweight="bold", 
+        fontsize=10
+    )
+
     ax.set_title(
         "Evolução da Acurácia Global por Rodada",
         fontsize=13,
@@ -98,7 +118,7 @@ def save_config_metrics_and_plots(
         pad=12,
     )
     ax.set_xlabel("Rodada do Servidor (Server Round)")
-    ax.set_ylabel("Acurácia Top-1")
+    ax.set_ylabel("Acurácia")
     ax.set_xticks(df["server_round"])
     ax.set_ylim(0, max(df["accuracy"]) * 1.25)
     sns.despine()
@@ -172,7 +192,29 @@ def save_config_metrics_and_plots(
         ax=axes[1],
     )
     axes[1].set_title(
-        "Acurácia Global Top-1", fontsize=12, fontweight="bold"
+        "Acurácia Global", fontsize=12, fontweight="bold"
+    )
+    # Encontra a acurácia máxima e a rodada onde ocorreu
+    max_acc = df["accuracy"].max()
+    max_round = df.loc[df["accuracy"].idxmax(), "server_round"]
+
+    # Adiciona a linha horizontal no nível máximo
+    axes[1].axhline(
+        y=max_acc, 
+        color="#D55E00", 
+        linestyle="--", 
+        linewidth=1.5, 
+        alpha=0.85
+    )
+
+    # Adiciona a anotação acima da linha
+    axes[1].text(
+        x=df["server_round"].min(), 
+        y=max_acc + (max_acc * 0.02),
+        s=f"Máx: {max_acc * 100:.2f}% (R{int(max_round)})", 
+        color="#D55E00", 
+        fontweight="bold", 
+        fontsize=9
     )
     axes[1].set_xlabel("Rodada")
     axes[1].set_ylabel("Acurácia")
