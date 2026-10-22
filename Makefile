@@ -2,7 +2,7 @@ run:
 	flwr run . --stream
 
 clean-data:
-	rm -f data/*
+	rm -r data/*
 
 clean-results:
-	rm -f results/*
+	rm -r results/*
