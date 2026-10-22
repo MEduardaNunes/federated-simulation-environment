@@ -64,9 +64,6 @@ Define o dataset a ser utilizado. Pode assumir apenas um valor dentro os dois di
 ### type-partition
 Define o tipo de particionamento a ser utilizado. Pode assumir apenas um valor dentro dos dois disponíveis: `"IID"` e `"NO_IID"`.
 
-strategy = "POC"
-proximal-mu = 0.75
-
 ### alpha-dirichlet
 Define o valor do alpha para o termo Dirichlet, utilizado para controlar a diversidade entre os dados dos clientes. Deve ser definido apenas se o particionamento for não-IID. Seu valor deve ser um número decimal positivo no intervalo [0, 1].
 
