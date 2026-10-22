@@ -43,7 +43,7 @@ def apply_transforms(batch, transforms):
 
 
 def partition_cache_dir(
-    num_partitions, alpha, seed=42, dataset=DEFAULT_DATASET
+    num_partitions, alpha=None, seed=42, dataset=DEFAULT_DATASET
 ):
     """
     Retorna o cache em disco do dataset.
@@ -57,7 +57,12 @@ def partition_cache_dir(
         - O cache em disco do dataset
     """
     config = get_dataset_config(dataset)
-    config_name = f"num-{num_partitions}_alpha-{alpha:g}_seed-{seed}"
+    config_name = f"num-{num_partitions}"
+
+    if alpha is not None:
+        config_name += f"_alpha-{alpha:g}"
+
+    config_name += f"_seed-{seed}"
     config_name = f"{dataset.lower()}_{config_name}"
 
     return (
@@ -113,7 +118,7 @@ def _normalize_dataset_columns(dataset, config):
 
 
 def prepare_partitions(
-    num_partitions, alpha=0.5, seed=42, dataset=DEFAULT_DATASET
+    num_partitions, alpha=None, seed=42, dataset=DEFAULT_DATASET
 ):
     """
     Cria as partições federadas do dataset e salva em diretório.
@@ -246,7 +251,7 @@ def load_data(
     partition_non_id,
     num_partitions,
     batch_size,
-    alpha=0.5,
+    alpha=None,
     seed=42,
     dataset=DEFAULT_DATASET,
 ):
@@ -282,7 +287,7 @@ def load_data(
 def load_centralized_dataset(
     dataset=DEFAULT_DATASET,
     num_partitions=100,
-    alpha=0.5,
+    alpha=None,
     seed=42,
 ):
     """

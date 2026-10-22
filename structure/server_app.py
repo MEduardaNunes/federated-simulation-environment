@@ -48,8 +48,14 @@ def main(grid: Grid, context: Context) -> None:
     # Criação das partições em disco e leitura das labels dos dados de cada
     # cliente para cálculo de divergências KL
     num_partitions = len(list(grid.get_node_ids()))
-    alpha: float = context.run_config["alpha-dirichlet"]
-    dataset = context.run_config.get("dataset", DEFAULT_DATASET)
+    dataset: str = context.run_config.get("dataset", "CIFAR-10")
+    type_partition: str = context.run_config.get("type-partition", "NO_IID")
+    alpha: float | None = None
+
+    if type_partition == "NO_IID":
+        alpha = context.run_config["alpha-dirichlet"]
+
+    dataset = dataset + "_" + type_partition
     dataset_config = get_dataset_config(dataset)
 
     prepare_partitions(num_partitions, alpha, dataset=dataset)
@@ -158,11 +164,10 @@ def main(grid: Grid, context: Context) -> None:
 
     # Inicializa estratégia customizada
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
+    fraction_train: float = context.run_config["fraction-train"]
     strategy_name = context.run_config["strategy"]
 
     if strategy_name == "FedAvg":
-        fraction_train: float = context.run_config["fraction-train"]
-
         strategy = SimulationFedAvg(
             fraction_evaluate=fraction_evaluate,
             fraction_train=fraction_train,
@@ -171,7 +176,6 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     elif strategy_name == "FedProx":
-        fraction_train: float = context.run_config["fraction-train"]
         proximal_mu = context.run_config["proximal-mu"]
         
         strategy = SimulationFedProx(
@@ -183,12 +187,11 @@ def main(grid: Grid, context: Context) -> None:
         )
 
     elif strategy_name == "POC":
-        d = context.run_config["d"]
         K : int = context.run_config["K"]
         
         strategy = SimulationPowerOfChoice(
             fraction_evaluate=fraction_evaluate,
-            fraction_train=d,
+            fraction_train=fraction_train,
             train_metrics_aggr_fn=aggregate_training_metrics,
             num_selected=K,
             simulation_environment=sim_env,
@@ -219,10 +222,10 @@ def main(grid: Grid, context: Context) -> None:
     best_global_accuracy, final_global_loss, total_bytes = sim_env.get_final_metrics()
     megabytes = total_bytes / (1024**2)
 
-    print(f"\nResumo do treinamento:"
-          f"Melhor acurácia global: {best_global_accuracy:.4f} "
-          f"({best_global_accuracy * 100:.2f}%)"
-          f"Loss global final: {final_global_loss:.6f}"
+    print(f"\nResumo do treinamento:\n"
+          f"Melhor acurácia global: {best_global_accuracy:.4f}"
+          f"({best_global_accuracy * 100:.2f}%)\n"
+          f"Loss global final: {final_global_loss:.6f}\n"
           "Total de bytes de comunicação "
           f"{megabytes:.2f} MB"
     )

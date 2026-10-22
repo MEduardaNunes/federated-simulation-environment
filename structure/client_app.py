@@ -33,8 +33,10 @@ def train(msg: Message, context: Context):
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
-    dataset = context.run_config.get("dataset", DEFAULT_DATASET)
     eligible_clients = msg.content["config"]["eligible-clients-mask"]
+    dataset = context.run_config.get("dataset", "CIFAR-10")
+    type_partition = context.run_config.get("type_partition", "NO_IID")
+    dataset = dataset + "_" + type_partition
    
    # Caso não esteja disponível, retorna sem treinar
     if not eligible_clients[partition_id]:
@@ -59,8 +61,11 @@ def train(msg: Message, context: Context):
 
     # Carrega dados do particionamento
     batch_size = context.run_config["batch-size"]
-    alpha_dirichlet = context.run_config["alpha-dirichlet"]
     num_local_epochs = context.run_config["local-epochs"]
+
+    alpha_dirichlet : None | float = None
+    if type_partition == "NO_IID":
+        alpha_dirichlet = context.run_config["alpha-dirichlet"]
 
     trainloader = load_data(
         partition_id,
