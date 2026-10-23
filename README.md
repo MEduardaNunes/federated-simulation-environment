@@ -171,3 +171,36 @@ Você pode sobrescrever hiperparâmetros definidos na seção `[tool.flwr.app.co
 ```bash
 flwr run . --run-config "num-server-rounds=5 learning-rate=0.05"  --stream
 ```
+
+### Executando no cluster com Slurm
+
+O script `submit_flower.sh` submete a simulação com `sbatch`. Ele usa o ambiente
+virtual externo recomendado acima (`../.venv`); para usar outro ambiente, defina
+`FLOWER_VENV` ao submeter. Crie o ambiente e instale as dependências uma única vez
+antes da submissão, seguindo as instruções de instalação deste README.
+
+```bash
+sinfo
+scontrol show partition
+sbatch submit_flower.sh
+squeue -u "$USER"
+JOBID=123456  # substitua pelo ID retornado por sbatch
+tail -f "slurm-flower-${JOBID}.out"
+tail -f "slurm-flower-${JOBID}.err"
+scancel "$JOBID"
+```
+
+O script não escolhe partição nem solicita GPU. Ele reserva seis CPUs e 16 GiB
+por até quatro horas, limita o Ray a quatro CPUs e quatro SuperNodes e atribui
+duas CPUs a cada cliente virtual, executando clientes em CPU. Quatro SuperNodes
+correspondem às partições existentes no cache de dados deste checkout; ajuste
+essa configuração se o experimento exigir outra quantidade de clientes. Os
+recursos são valores iniciais conservadores, não uma garantia de disponibilidade
+ou desempenho do cluster. As saídas continuam em `results/` e os logs do Slurm
+ficam no diretório de onde `sbatch` foi executado. O script impede execuções
+simultâneas usando o mesmo checkout para proteger os arquivos temporários de
+métricas. O estado do SuperLink local fica isolado por job em `results/`, e a
+instalação automática de dependências do Flower é desativada: por isso o ambiente
+virtual precisa conter as dependências do projeto antes da submissão. O Slurm
+deve encerrar os processos do job ao final; verifique a política local para
+processos auxiliares em background.
