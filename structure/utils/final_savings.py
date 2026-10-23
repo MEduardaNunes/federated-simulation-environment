@@ -11,7 +11,8 @@ import shutil
 
 def save_config_metrics_and_plots(
     csv_path="round_metrics.csv", 
-    output_dir_base="results"
+    output_dir_base="results",
+    output_dir=None,
 ):
     """
     Cria uma pasta com a data atual, salva as métricas obtidas durante o treinamento,
@@ -20,17 +21,22 @@ def save_config_metrics_and_plots(
     Parâmetros:
         - csv_path: caminho para o arquivo csv com as métricas do treinamento.
         - output_dir_base: caminho para a pasta onde serão salvos os resultados;
+        - output_dir: diretório de saída exato, opcional.
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    # Cria o caminho subpasta/horario (ex: plots/2026-10-18_16-14-56)
-    output_dir = os.path.join(output_dir_base, timestamp)
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_dir = os.path.join(output_dir_base, timestamp)
     os.makedirs(output_dir, exist_ok=True)
 
     # Copia o arquivo de métricas .csv do treinamento
     if os.path.exists(csv_path):
-        metrics_copy_path = os.path.join(output_dir, os.path.basename(csv_path))
-        shutil.copy2(csv_path, metrics_copy_path)
+        metrics_dir = os.path.join(output_dir, "metrics")
+        os.makedirs(metrics_dir, exist_ok=True)
+        metrics_copy_path = os.path.join(
+            metrics_dir, os.path.basename(csv_path)
+        )
+        if os.path.abspath(csv_path) != os.path.abspath(metrics_copy_path):
+            shutil.copy2(csv_path, metrics_copy_path)
 
     # Copia o arquivo de configurações do treinamento
     toml_path = "pyproject.toml"

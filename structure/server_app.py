@@ -1,6 +1,9 @@
 import csv
 import os
+import ast
+import shutil
 from pathlib import Path
+from datetime import datetime
 import numpy as np
 import torch
 from datasets import load_from_disk
@@ -27,7 +30,7 @@ from structure.utils.final_savings import *
 
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"]="0"
-set_seed(42)  # Define a semente para reprodutibilidade
+
 
 # Create ServerApp
 app = ServerApp()
@@ -36,15 +39,49 @@ round_metrics_path = Path.cwd() / "round_metrics.csv"
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
+    seeds = ast.literal_eval(
+        context.run_config.get("seeds", "[42]")
+    )
+    if (
+        not isinstance(seeds, list)
+        or not seeds
+        or any(type(seed) is not int or seed < 0 or seed > 2**32 - 1 for seed in seeds)
+    ):
+        raise ValueError(
+            "seeds must be a non-empty list of integers from 0 to 2**32 - 1"
+        )
+
+    global round_metrics_path
+    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    for seed in seeds:
+        seed_output_dir = Path("results") / run_timestamp / f"seed-{seed}"
+        metrics_dir = seed_output_dir / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        round_metrics_path = Path.cwd() / f"round_metrics_seed-{seed}.csv"
+        with round_metrics_path.open(
+            "w", newline="", encoding="utf-8"
+        ) as metrics_file:
+            csv.writer(metrics_file).writerow(
+                ["server_round", "loss", "accuracy", "total_bytes_comunication"]
+            )
+        run_training_for_seed(grid, context, seed, seed_output_dir)
+
+
+def run_training_for_seed(
+    grid: Grid, context: Context, seed: int, seed_output_dir: Path
+) -> None:
     """
-    Entrada principal para o servidor. Coordena o treinamento
-    global.
+    Coordena um treinamento federado para uma seed específica.
 
     Parâmetros:
         - grid: infraestrutura da rede dos nós do sistema Flower
         - context: contexto da simulação, contendo principais hiperparâmetros
-        para o treinamento 
+        para o treinamento
+        - seed: semente do experimento
+        - seed_output_dir: diretório dos resultados desta seed
     """
+    set_seed(seed)
+
     # Criação das partições em disco e leitura das labels dos dados de cada
     # cliente para cálculo de divergências KL
     num_partitions = len(list(grid.get_node_ids()))
@@ -58,14 +95,14 @@ def main(grid: Grid, context: Context) -> None:
     dataset = dataset + "_" + type_partition
     dataset_config = get_dataset_config(dataset)
 
-    prepare_partitions(num_partitions, alpha, dataset=dataset)
+    prepare_partitions(num_partitions, alpha, seed=seed, dataset=dataset)
     client_labels = []
     number_of_examples = np.zeros(num_partitions, dtype=np.int64)
     for partition_id in range(num_partitions):
         partition = load_from_disk(
             str(
                 partition_cache_dir(
-                    num_partitions, alpha, dataset=dataset
+                    num_partitions, alpha, seed=seed, dataset=dataset
                 )
                 / f"partition-{partition_id}"
             )
@@ -78,11 +115,6 @@ def main(grid: Grid, context: Context) -> None:
         client_labels, dataset_config.num_classes
     )
 
-    with round_metrics_path.open("w", newline="", encoding="utf-8") as metrics_file:
-        csv.writer(metrics_file).writerow(
-            ["server_round", "loss", "accuracy", "total_bytes_comunication"]
-        )
-
     # Carregamento do modelo global
     num_rounds: int = context.run_config["num-server-rounds"]
 
@@ -94,12 +126,13 @@ def main(grid: Grid, context: Context) -> None:
         divergences_kl=divergences_kl,
         number_of_examples=number_of_examples,
         costs_communication=generate_client_communication_costs(
-            global_model, num_partitions
+            global_model, num_partitions, seed=seed
         ),
         max_rounds=num_rounds,
+        seed=seed,
     )
 
-    sim_env.reset()
+    sim_env.reset(seed=seed)
     round_client_losses: dict[int, float] = {}
 
     def aggregate_training_metrics(
@@ -158,6 +191,7 @@ def main(grid: Grid, context: Context) -> None:
             dataset,
             num_partitions,
             alpha,
+            seed,
         )
 
         return metrics
@@ -207,7 +241,7 @@ def main(grid: Grid, context: Context) -> None:
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
-        train_config=ConfigRecord({"lr": lr}),
+        train_config=ConfigRecord({"lr": lr, "seed": seed}),
         num_rounds=num_rounds,
         evaluate_fn=evaluate_global_model,
     )
@@ -216,7 +250,7 @@ def main(grid: Grid, context: Context) -> None:
         # Salva modelo final em disco
         print("\nSaving final model to disk...")
         state_dict = result.arrays.to_torch_state_dict()
-        torch.save(state_dict, "final_model.pt")
+        torch.save(state_dict, seed_output_dir / f"final_model_seed-{seed}.pt")
 
     # Resultado final do treinamento
     best_global_accuracy, final_global_loss, total_bytes = sim_env.get_final_metrics()
@@ -231,9 +265,16 @@ def main(grid: Grid, context: Context) -> None:
     )
 
     # Escrita dos resultados finais em disco
+    metrics_path = seed_output_dir / "metrics" / round_metrics_path.name
+    shutil.copy2(round_metrics_path, metrics_path)
+    round_metrics_path.unlink()
+
     save_result = context.run_config["save-result"]
     if save_result:
-        save_config_metrics_and_plots()
+        save_config_metrics_and_plots(
+            csv_path=str(metrics_path),
+            output_dir=str(seed_output_dir),
+        )
 
 
 def global_evaluate(
@@ -244,6 +285,7 @@ def global_evaluate(
     dataset: str = DEFAULT_DATASET,
     num_partitions: int = 100,
     alpha: float = 0.5,
+    seed: int = 42,
 ) -> MetricRecord:
     """
     Avalia modelo centralizado com todo o dataset de validação.
@@ -266,7 +308,7 @@ def global_evaluate(
 
     # Carregar os dados do modelo
     test_dataloader = load_centralized_dataset(
-        dataset, num_partitions, alpha
+        dataset, num_partitions, alpha, seed
     )
 
     # Avaliação global do modelo

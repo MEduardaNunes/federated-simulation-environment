@@ -8,8 +8,6 @@ from structure.utils.data import load_data
 from structure.utils.training import train as train_fn
 from structure.utils.common import set_seed
 
-set_seed(42)  # Define a semente para reprodutibilidade
-
 # Flower ClientApp
 app = ClientApp()
 
@@ -33,6 +31,8 @@ def train(msg: Message, context: Context):
 
     partition_id = int(context.node_config["partition-id"])
     num_partitions = int(context.node_config["num-partitions"])
+    seed = int(msg.content["config"]["seed"])
+    set_seed(seed)
     eligible_clients = msg.content["config"]["eligible-clients-mask"]
     dataset = context.run_config.get("dataset", "CIFAR-10")
     type_partition = context.run_config.get("type_partition", "NO_IID")
@@ -72,6 +72,7 @@ def train(msg: Message, context: Context):
         num_partitions,
         batch_size,
         alpha_dirichlet,
+        seed=seed,
         dataset=dataset,
     )
 

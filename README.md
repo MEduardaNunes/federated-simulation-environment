@@ -39,6 +39,15 @@ pip install -e .
 
 No arquivo `pyproject.toml`, na seção `[tool.flwr.app.config]`, são definidas as variáveis do projeto que irão definir os valores dos hiperparâmetros, qual dataset será utilizado, bem como o tipo do seu particionamento. À seguir, são explicados todos os parâmetros e seus significados.
 
+### seeds
+Define uma lista não vazia de seeds inteiras, entre `0` e `2**32 - 1`. O projeto executa um treinamento completo para cada seed, usando-a na inicialização do modelo, no particionamento e carregamento dos dados e nos componentes aleatórios da simulação. Os arquivos de métricas e modelos são identificados pela seed para evitar sobrescrita. Exemplo:
+
+```toml
+seeds = "[42, 123, 456]"
+```
+
+Os resultados de uma execução são salvos em `results/<horario-inicial>/seed-<valor-da-seed>`, mantendo os arquivos de cada seed organizados dentro da pasta identificada pelo horário de início do treinamento. Os arquivos `round_metrics` ficam em `metrics/` dentro de cada diretório de seed.
+
 ### num-server-rounds
 Define o número de rodadas de treinamento do servidor. Seu valor deve ser um número inteiro maior que zero.
 
