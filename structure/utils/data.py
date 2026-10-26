@@ -117,6 +117,25 @@ def _normalize_dataset_columns(dataset, config):
     return dataset
 
 
+def _load_source_dataset(config):
+    local_dataset_path = (
+        Path(__file__).resolve().parents[2]
+        / "data"
+        / config.hub_id.rsplit("/", 1)[-1]
+    )
+    if local_dataset_path.exists():
+        local_dataset = load_from_disk(str(local_dataset_path))
+        if isinstance(local_dataset, DatasetDict):
+            if "train" not in local_dataset:
+                raise ValueError(
+                    f"Local dataset at {local_dataset_path} has no 'train' split"
+                )
+            return local_dataset["train"]
+        return local_dataset
+
+    return load_dataset(config.hub_id, split="train")
+
+
 def prepare_partitions(
     num_partitions, alpha=None, seed=42, dataset=DEFAULT_DATASET
 ):
@@ -195,7 +214,7 @@ def prepare_partitions(
                 raise ValueError(f"Partition metadata does not match cache: {cache_dir}")
         else:
             manifest_path.unlink(missing_ok=True)
-            source_dataset = load_dataset(config.hub_id, split="train")
+            source_dataset = _load_source_dataset(config)
             source_dataset = _normalize_dataset_columns(source_dataset, config)
             splits = source_dataset.train_test_split(
                 test_size=metadata["validation_fraction"], seed=seed

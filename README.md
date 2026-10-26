@@ -48,6 +48,17 @@ seeds = "[42, 123, 456]"
 
 Os resultados de uma execução são salvos em `results/<horario-inicial>/seed-<valor-da-seed>`, mantendo os arquivos de cada seed organizados dentro da pasta identificada pelo horário de início do treinamento. Os arquivos `round_metrics` ficam em `metrics/` dentro de cada diretório de seed.
 
+Ao executar o treinamento normal, as métricas por rodada entre as seeds são consolidadas automaticamente após a conclusão de todas elas. Os arquivos `aggregated_metrics.csv`, `accuracy_curve.png`, `loss_curve.png` e `communication_bytes.png` são salvos em `results/<horario-inicial>/aggregate/`. Os gráficos mostram a média e a faixa de um desvio padrão entre os CSVs, com resolução de 300 DPI.
+
+Para executar somente a agregação de uma execução já concluída, sem iniciar o treinamento:
+
+```bash
+python -m structure.utils.final_savings \
+  --input-dir results/<horario-inicial>
+```
+
+O comando lê `seed-*/metrics/round_metrics*.csv` e grava os arquivos agregados em `results/<horario-inicial>/aggregate/`. Opcionalmente, informe `--output-dir <pasta>` para alterar a saída ou `--dpi <valor>` para mudar a resolução dos gráficos.
+
 ### num-server-rounds
 Define o número de rodadas de treinamento do servidor. Seu valor deve ser um número inteiro maior que zero.
 
@@ -72,6 +83,8 @@ Define o dataset a ser utilizado. Pode assumir apenas um valor dentro os dois di
 
 ### type-partition
 Define o tipo de particionamento a ser utilizado. Pode assumir apenas um valor dentro dos dois disponíveis: `"IID"` e `"NO_IID"`.
+
+Se o cache de partições para a configuração atual (dataset, tipo, número de clientes, seed e, para NO_IID, alpha) não existir, o sistema o gera usando o dataset fonte. Ele procura primeiro uma cópia salva em `data/<nome-do-dataset>` — por exemplo, `data/cifar10` para CIFAR-10 — que deve ser um dataset salvo com `save_to_disk()` e conter uma divisão `train` se for um `DatasetDict`. Se essa cópia local não existir, o dataset é carregado do Hugging Face Hub e requer conexão com a internet.
 
 ### alpha-dirichlet
 Define o valor do alpha para o termo Dirichlet, utilizado para controlar a diversidade entre os dados dos clientes. Deve ser definido apenas se o particionamento for não-IID. Seu valor deve ser um número decimal positivo no intervalo [0, 1].

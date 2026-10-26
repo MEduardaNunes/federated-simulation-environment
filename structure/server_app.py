@@ -26,7 +26,10 @@ from structure.utils.environment_utils import (
     compute_divergence_kl_for_clients,
     generate_client_communication_costs,
 )
-from structure.utils.final_savings import *
+from structure.utils.final_savings import (
+    aggregate_metrics_and_plots,
+    save_config_metrics_and_plots,
+)
 
 os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
 os.environ["RAY_DEDUP_LOGS"]="0"
@@ -53,8 +56,10 @@ def main(grid: Grid, context: Context) -> None:
 
     global round_metrics_path
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_output_dir = Path("results") / run_timestamp
+
     for seed in seeds:
-        seed_output_dir = Path("results") / run_timestamp / f"seed-{seed}"
+        seed_output_dir = run_output_dir / f"seed-{seed}"
         metrics_dir = seed_output_dir / "metrics"
         metrics_dir.mkdir(parents=True, exist_ok=True)
         round_metrics_path = Path.cwd() / f"round_metrics_seed-{seed}.csv"
@@ -65,6 +70,12 @@ def main(grid: Grid, context: Context) -> None:
                 ["server_round", "loss", "accuracy", "total_bytes_comunication"]
             )
         run_training_for_seed(grid, context, seed, seed_output_dir)
+
+    if context.run_config["save-result"]:
+        aggregate_metrics_and_plots(
+            input_dir=run_output_dir,
+            output_dir=run_output_dir / "aggregate",
+        )
 
 
 def run_training_for_seed(
@@ -86,7 +97,7 @@ def run_training_for_seed(
     # cliente para cálculo de divergências KL
     num_partitions = len(list(grid.get_node_ids()))
     dataset: str = context.run_config.get("dataset", "CIFAR-10")
-    type_partition: str = context.run_config.get("type-partition", "NO_IID")
+    type_partition: str = context.run_config.get("type-partition", "IID")
     alpha: float | None = None
 
     if type_partition == "NO_IID":
@@ -269,8 +280,7 @@ def run_training_for_seed(
     shutil.copy2(round_metrics_path, metrics_path)
     round_metrics_path.unlink()
 
-    save_result = context.run_config["save-result"]
-    if save_result:
+    if context.run_config["save-result"]:
         save_config_metrics_and_plots(
             csv_path=str(metrics_path),
             output_dir=str(seed_output_dir),

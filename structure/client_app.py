@@ -35,7 +35,7 @@ def train(msg: Message, context: Context):
     set_seed(seed)
     eligible_clients = msg.content["config"]["eligible-clients-mask"]
     dataset = context.run_config.get("dataset", "CIFAR-10")
-    type_partition = context.run_config.get("type_partition", "NO_IID")
+    type_partition = context.run_config.get("type-partition", "NO_IID")
     dataset = dataset + "_" + type_partition
    
    # Caso não esteja disponível, retorna sem treinar
