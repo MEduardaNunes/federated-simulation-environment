@@ -230,8 +230,36 @@ def save_config_metrics_and_plots(
         shutil.copy2(toml_path, os.path.join(output_dir, "pyproject.toml"))
 
     # Leitura dos dados
+    expected_columns = [
+        "server_round",
+        "loss",
+        "accuracy",
+        "total_bytes_comunication",
+    ]
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
+    if not set(expected_columns).issubset(df.columns):
+        header_is_data = len(df.columns) == len(expected_columns)
+        if header_is_data:
+            try:
+                for column in df.columns:
+                    float(column)
+            except ValueError:
+                header_is_data = False
+
+        if header_is_data:
+            df = pd.read_csv(csv_path, header=None, names=expected_columns)
+        else:
+            missing_columns = sorted(set(expected_columns).difference(df.columns))
+            raise ValueError(
+                f"{csv_path} não contém as colunas obrigatórias: "
+                f"{', '.join(missing_columns)}. "
+                f"Colunas encontradas: {', '.join(df.columns.astype(str))}"
+            )
+
+    if df.empty:
+        raise ValueError(f"{csv_path} não contém métricas para gerar os gráficos.")
+
     df = df.sort_values("server_round").reset_index(drop=True)
     window = min(MOVING_AVERAGE_WINDOW, len(df))
     df["loss_moving_average"] = df["loss"].rolling(

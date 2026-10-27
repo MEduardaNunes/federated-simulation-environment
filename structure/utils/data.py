@@ -227,7 +227,6 @@ def prepare_partitions(
                     num_partitions=num_partitions,
                     partition_by="label",
                     alpha=alpha,
-                    min_partition_size=10,
                     self_balancing=True,
                     seed=seed,
                 )
