@@ -74,6 +74,9 @@ Define o número de épocas locais de treinamento realizadas por um cliente. Seu
 ### learning-rate
 Define o valor da taxa de aprendizado para o treinamento supervisionado. Seu valor deve ser um número decimal positivo, idealmente no intervalo [0, 1].
 
+### learning-rate-minimum
+Define o limite mínimo da taxa de aprendizado. A taxa decai exponencialmente a cada rodada global, começando em `learning-rate` e chegando a `learning-rate-minimum` na última rodada. Deve ser um número decimal positivo menor ou igual a `learning-rate`.
+
 ### batch-size
 Define a quantidade de exemplos a serem selecionados em cada época local em um cliente. Seu valor deve ser um número inteiro maior que zero.
 
@@ -120,6 +123,7 @@ fraction-evaluate = 0.0
 fraction-train = 0.1
 local-epochs = 1
 learning-rate = 0.05
+learning-rate-minimum = 0.001
 batch-size = 64
 
 dataset = "CIFAR-10"
@@ -139,6 +143,7 @@ fraction-evaluate = 0.0
 fraction-train = 0.1
 local-epochs = 1
 learning-rate = 0.05
+learning-rate-minimum = 0.001
 batch-size = 64
 
 dataset = "CIFAR-10"
@@ -159,6 +164,7 @@ fraction-evaluate = 0.0
 fraction-train = 0.75
 local-epochs = 1
 learning-rate = 0.05
+learning-rate-minimum = 0.001
 batch-size = 64
 
 dataset = "CIFAR-10"

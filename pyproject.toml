@@ -38,6 +38,7 @@ fraction-evaluate = 0.0
 fraction-train = 0.1
 local-epochs = 3
 learning-rate = 0.05
+learning-rate-minimum = 0.001
 batch-size = 64
 dataset = "CIFAR-10"
 type-partition = "IID"

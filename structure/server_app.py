@@ -211,6 +211,20 @@ def run_training_for_seed(
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     fraction_train: float = context.run_config["fraction-train"]
     strategy_name = context.run_config["strategy"]
+    lr: float = context.run_config["learning-rate"]
+    lr_minimum: float = context.run_config["learning-rate-minimum"]
+
+    if lr <= 0 or lr_minimum <= 0 or lr_minimum > lr:
+        raise ValueError(
+            "learning-rate and learning-rate-minimum must be positive, "
+            "and learning-rate-minimum cannot exceed learning-rate."
+        )
+
+    lr_decay_config = {
+        "initial_learning_rate": lr,
+        "minimum_learning_rate": lr_minimum,
+        "max_rounds": num_rounds,
+    }
 
     if strategy_name == "FedAvg":
         strategy = SimulationFedAvg(
@@ -218,6 +232,7 @@ def run_training_for_seed(
             fraction_train=fraction_train,
             train_metrics_aggr_fn=aggregate_training_metrics,
             simulation_environment=sim_env,
+            **lr_decay_config,
         )
 
     elif strategy_name == "FedProx":
@@ -228,7 +243,8 @@ def run_training_for_seed(
             fraction_train=fraction_train,
             train_metrics_aggr_fn=aggregate_training_metrics,
             simulation_environment=sim_env,
-            proximal_mu=proximal_mu
+            proximal_mu=proximal_mu,
+            **lr_decay_config,
         )
 
     elif strategy_name == "POC":
@@ -240,6 +256,7 @@ def run_training_for_seed(
             train_metrics_aggr_fn=aggregate_training_metrics,
             num_selected=K,
             simulation_environment=sim_env,
+            **lr_decay_config,
         )
 
     else:
@@ -247,8 +264,6 @@ def run_training_for_seed(
         return 0
 
     # Inicia treinamento com estratégia
-    lr: float = context.run_config["learning-rate"]
-
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,

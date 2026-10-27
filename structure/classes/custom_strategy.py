@@ -7,12 +7,44 @@ from structure.classes.federated_classes import SimulationEnvironment
 from ..utils.common import _count_message_record_bytes
 
 
+def _set_round_learning_rate(
+    config: ConfigRecord,
+    server_round: int,
+    initial_learning_rate: float,
+    minimum_learning_rate: float,
+    max_rounds: int,
+) -> None:
+    if max_rounds <= 1 or server_round <= 1:
+        config["lr"] = initial_learning_rate
+        return
+
+    if server_round >= max_rounds:
+        config["lr"] = minimum_learning_rate
+        return
+
+    progress = (server_round - 1) / (max_rounds - 1)
+    config["lr"] = initial_learning_rate * (
+        minimum_learning_rate / initial_learning_rate
+    ) ** progress
+
+
 class SimulationFedAvg(FedAvg):
     """ FedAvg customizado para disponibilidade de clientes. """
 
-    def __init__(self, *args, simulation_environment: SimulationEnvironment, **kwargs):
+    def __init__(
+        self,
+        *args,
+        simulation_environment: SimulationEnvironment,
+        initial_learning_rate: float,
+        minimum_learning_rate: float,
+        max_rounds: int,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.simulation_environment = simulation_environment
+        self.initial_learning_rate = initial_learning_rate
+        self.minimum_learning_rate = minimum_learning_rate
+        self.max_rounds = max_rounds
 
     def configure_train(
         self,
@@ -35,6 +67,13 @@ class SimulationFedAvg(FedAvg):
             - lista de mensagens a serem enviadas aos clientes
         """
 
+        _set_round_learning_rate(
+            config,
+            server_round,
+            self.initial_learning_rate,
+            self.minimum_learning_rate,
+            self.max_rounds,
+        )
         config["eligible-clients-mask"] = (
             self.simulation_environment.eligible_clients_mask.astype(int).tolist()
         )
@@ -118,12 +157,18 @@ class SimulationPowerOfChoice(FedAvg):
         *args,
         num_selected: int = 10,
         simulation_environment: SimulationEnvironment,
+        initial_learning_rate: float,
+        minimum_learning_rate: float,
+        max_rounds: int,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.simulation_environment = simulation_environment
         self.num_selected = num_selected  
         self.latest_client_losses: dict[int, float] = {}
+        self.initial_learning_rate = initial_learning_rate
+        self.minimum_learning_rate = minimum_learning_rate
+        self.max_rounds = max_rounds
 
     def configure_train(
         self,
@@ -152,6 +197,13 @@ class SimulationPowerOfChoice(FedAvg):
         Gera as mensagens candidatas, ordena pela maior loss registrada
         e seleciona apenas os K clientes prioritários.
         """
+        _set_round_learning_rate(
+            config,
+            server_round,
+            self.initial_learning_rate,
+            self.minimum_learning_rate,
+            self.max_rounds,
+        )
         config["eligible-clients-mask"] = (
             self.simulation_environment.eligible_clients_mask.astype(int).tolist()
         )
