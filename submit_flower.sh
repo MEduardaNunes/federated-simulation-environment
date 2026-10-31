@@ -5,8 +5,8 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
-#SBATCH --output=/home/users/mariaeduarda.costa/slurm/flower-sim%j.out
-#SBATCH --error=/home/users/mariaeduarda.costa/slurm/flower-sim%j.err
+#SBATCH --output=/slurm/flower-sim%j.out
+#SBATCH --error=/slurm/flower-sim%j.err
 #SBATCH --gres=gpu:1
 #SBATCH --mail-user=mecosta961@gmail.com
 #SBATCH --mail-type=BEGIN,END,FAIL

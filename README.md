@@ -48,7 +48,7 @@ seeds = "[42, 123, 456]"
 
 Os resultados de uma execução são salvos em `results/<horario-inicial>/seed-<valor-da-seed>`, mantendo os arquivos de cada seed organizados dentro da pasta identificada pelo horário de início do treinamento. Os arquivos `round_metrics` ficam em `metrics/` dentro de cada diretório de seed.
 
-Ao executar o treinamento normal, as métricas por rodada entre as seeds são consolidadas automaticamente após a conclusão de todas elas. Os arquivos `aggregated_metrics.csv`, `accuracy_curve.png`, `loss_curve.png` e `communication_bytes.png` são salvos em `results/<horario-inicial>/aggregate/`. Os gráficos mostram a média e a faixa de um desvio padrão entre os CSVs, com resolução de 300 DPI.
+Ao executar o treinamento normal, as métricas por rodada entre as seeds são consolidadas automaticamente após a conclusão de todas elas. Os arquivos `aggregated_metrics.csv`, `accuracy_curve.png`, `loss_curve.png`, `communication_bytes.png` e `communication_cost.png` são salvos em `results/<horario-inicial>/aggregate/`. Os bytes de envio incluem todos os clientes selecionados (os 10 selecionados no POC, quando `K=10`); os bytes de retorno incluem somente as respostas válidas. A métrica de custo soma `c_i` (coluna 4 do estado MDP, em segundos) no envio para todos os selecionados e no retorno somente para quem respondeu validamente. Os CSVs guardam totais e valores separados de envio e retorno. Os gráficos mostram a média e a faixa de um desvio padrão entre os CSVs, com resolução de 300 DPI.
 
 Para executar somente a agregação de uma execução já concluída, sem iniciar o treinamento:
 

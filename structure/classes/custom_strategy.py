@@ -7,6 +7,41 @@ from structure.classes.federated_classes import SimulationEnvironment
 from ..utils.common import _count_message_record_bytes
 
 
+def _client_indices_for_messages(
+    messages: Iterable[Message],
+    grid: Grid,
+) -> list[int]:
+    """
+    Obtém os índices MDP dos clientes destinatários das mensagens.
+
+    Parâmetros:
+        - messages: mensagens enviadas aos clientes selecionados
+        - grid: infraestrutura Flower, cuja ordem de IDs define os índices dos clientes
+
+    Retorna:
+        - lista de índices correspondentes aos destinatários das mensagens
+
+    Erros:
+        - ValueError: se uma mensagem tiver como destinatário um nó ausente do grid
+    """
+    node_ids = list(grid.get_node_ids())
+    node_to_client_index = {
+        node_id: client_index for client_index, node_id in enumerate(node_ids)
+    }
+
+    try:
+        selected_client_indices = [
+            node_to_client_index[message.metadata.dst_node_id]
+            for message in messages
+        ]
+    except KeyError as error:
+        raise ValueError(
+            f"Selected node {error.args[0]} is not present in the grid"
+        ) from error
+
+    return selected_client_indices
+
+
 def _set_round_learning_rate(
     config: ConfigRecord,
     server_round: int,
@@ -14,6 +49,16 @@ def _set_round_learning_rate(
     minimum_learning_rate: float,
     max_rounds: int,
 ) -> None:
+    """
+    Atualiza a taxa de aprendizado conforme o progresso das rodadas.
+
+    Parâmetros:
+        - config: configuração da rodada que receberá a taxa em ``lr``
+        - server_round: número da rodada atual
+        - initial_learning_rate: taxa de aprendizado da primeira rodada
+        - minimum_learning_rate: taxa mínima aplicada na última rodada
+        - max_rounds: quantidade total de rodadas de treinamento
+    """
     if max_rounds <= 1 or server_round <= 1:
         config["lr"] = initial_learning_rate
         return
@@ -40,6 +85,17 @@ class SimulationFedAvg(FedAvg):
         max_rounds: int,
         **kwargs,
     ):
+        """
+        Inicializa FedAvg com métricas e agenda de aprendizado da simulação.
+
+        Parâmetros:
+            - args: argumentos posicionais encaminhados ao construtor FedAvg
+            - simulation_environment: ambiente que acumula métricas da simulação
+            - initial_learning_rate: taxa de aprendizado da primeira rodada
+            - minimum_learning_rate: taxa mínima aplicada na última rodada
+            - max_rounds: quantidade total de rodadas de treinamento
+            - kwargs: argumentos nomeados encaminhados ao construtor FedAvg
+        """
         super().__init__(*args, **kwargs)
         self.simulation_environment = simulation_environment
         self.initial_learning_rate = initial_learning_rate
@@ -54,8 +110,8 @@ class SimulationFedAvg(FedAvg):
         grid: Grid,
     ) -> Iterable[Message]:
         """
-        Configuração de treinamento: envia clientes disponíveis nas mensagens de
-        treinamento e grava bytes de comunicação das mensagens enviadas.
+        Configuração de treinamento: envia mensagens aos clientes selecionados
+        e registra bytes e custos de comunicação do envio.
 
         Parâmetros:
             - server_round: número da rodada de treinamento
@@ -78,8 +134,10 @@ class SimulationFedAvg(FedAvg):
             self.simulation_environment.eligible_clients_mask.astype(int).tolist()
         )
         messages = list(super().configure_train(server_round, arrays, config, grid))
-        self.simulation_environment.record_communication_bytes(
-            _count_message_record_bytes(messages)
+        self.simulation_environment.record_client_communication(
+            _count_message_record_bytes(messages),
+            _client_indices_for_messages(messages, grid),
+            "sent",
         )
         return messages
 
@@ -87,15 +145,15 @@ class SimulationFedAvg(FedAvg):
         self, server_round: int, replies: Iterable[Message]
     ) -> tuple[ArrayRecord | None, MetricRecord | None]:
         """
-        Agregação do treinamento: recebe as respostas dos clientes, aumenta o 
-        número de bytes de comunicação e envia apenas as respostas válidas.
+        Agregação do treinamento: contabiliza bytes apenas das respostas válidas
+        e envia somente essas respostas à agregação.
 
         Parâmetros:
             - server_round: número da rodada de treinamento
             - replies: mensagens retornadas pelos clientes
 
         Retorna:
-            - lista de mensagens retornadas pelos clientes disponíveis
+            - tupla com os pesos agregados (ou None) e as métricas agregadas
         """
         replies = list(replies)
         eligible_replies = [
@@ -103,8 +161,13 @@ class SimulationFedAvg(FedAvg):
             for reply in replies
             if not reply.has_error() and bool(reply.content["metrics"]["eligible"])
         ]
-        self.simulation_environment.record_communication_bytes(
-            _count_message_record_bytes(eligible_replies)
+        self.simulation_environment.record_client_communication(
+            _count_message_record_bytes(eligible_replies),
+            [
+                int(reply.content["metrics"]["partition-id"])
+                for reply in eligible_replies
+            ],
+            "received",
         )
         
         return super().aggregate_train(server_round, eligible_replies)
@@ -120,7 +183,15 @@ class SimulationFedProx(SimulationFedAvg):
         simulation_environment: SimulationEnvironment,
         **kwargs,
     ):
-        
+        """
+        Inicializa FedProx com o coeficiente proximal e o ambiente de simulação.
+
+        Parâmetros:
+            - args: argumentos posicionais encaminhados ao construtor FedAvg
+            - proximal_mu: coeficiente do termo proximal
+            - simulation_environment: ambiente que acumula métricas da simulação
+            - kwargs: argumentos nomeados encaminhados ao construtor FedAvg
+        """
         super().__init__(*args, simulation_environment=simulation_environment, **kwargs)
         self.proximal_mu = proximal_mu
 
@@ -132,8 +203,8 @@ class SimulationFedProx(SimulationFedAvg):
         grid: Grid,
     ) -> Iterable[Message]:
         """
-        Configuração de treinamento: envia clientes disponíveis nas mensagens de
-        treinamento e o proximal_mu, e grava bytes de comunicação das mensagens enviadas.
+        Configuração de treinamento: envia mensagens aos clientes selecionados,
+        o proximal_mu e registra bytes e custos de comunicação do envio.
 
         Parâmetros:
             - server_round: número da rodada de treinamento
@@ -162,6 +233,18 @@ class SimulationPowerOfChoice(FedAvg):
         max_rounds: int,
         **kwargs,
     ):
+        """
+        Inicializa Power-of-Choice com o limite de seleção e histórico de losses.
+
+        Parâmetros:
+            - args: argumentos posicionais encaminhados ao construtor FedAvg
+            - num_selected: quantidade de clientes selecionados em cada rodada
+            - simulation_environment: ambiente que acumula métricas da simulação
+            - initial_learning_rate: taxa de aprendizado da primeira rodada
+            - minimum_learning_rate: taxa mínima aplicada na última rodada
+            - max_rounds: quantidade total de rodadas de treinamento
+            - kwargs: argumentos nomeados encaminhados ao construtor FedAvg
+        """
         super().__init__(*args, **kwargs)
         self.simulation_environment = simulation_environment
         self.num_selected = num_selected  
@@ -180,8 +263,8 @@ class SimulationPowerOfChoice(FedAvg):
         """
         Configuração de treinamento: envia clientes disponíveis nas mensagens de
         treinamento, seleciona os clientes para mandar mensagens selecionando os
-        top-K com maiores losses dentre d disponíveis e grava bytes de comunicação
-        das mensagens enviadas.
+        top-K com maiores losses dentre d disponíveis e registra bytes e custos
+        de comunicação do envio.
 
         Parâmetros:
             - server_round: número da rodada de treinamento
@@ -223,9 +306,11 @@ class SimulationPowerOfChoice(FedAvg):
         # Filtra apenas as K mensagens dos clientes escolhidos
         selected_messages = sorted_messages[: self.num_selected]
 
-        # Registra os bytes transmitidos APENAS para as K mensagens efetivamente enviadas
-        self.simulation_environment.record_communication_bytes(
-            _count_message_record_bytes(selected_messages)
+        # Registra bytes e custo apenas dos clientes efetivamente selecionados
+        self.simulation_environment.record_client_communication(
+            _count_message_record_bytes(selected_messages),
+            _client_indices_for_messages(selected_messages, grid),
+            "sent",
         )
 
         return selected_messages
@@ -242,7 +327,7 @@ class SimulationPowerOfChoice(FedAvg):
             - replies: mensagens retornadas pelos clientes
 
         Retorna:
-            - lista de mensagens retornadas pelos clientes disponíveis
+            - tupla com os pesos agregados (ou None) e as métricas agregadas
         """
         replies = list(replies)
         eligible_replies = [
@@ -259,8 +344,13 @@ class SimulationPowerOfChoice(FedAvg):
                 self.latest_client_losses[node_id] = float(metrics["train_loss"])
 
         # Registra bytes das mensagens de retorno recebidas
-        self.simulation_environment.record_communication_bytes(
-            _count_message_record_bytes(eligible_replies)
+        self.simulation_environment.record_client_communication(
+            _count_message_record_bytes(eligible_replies),
+            [
+                int(reply.content["metrics"]["partition-id"])
+                for reply in eligible_replies
+            ],
+            "received",
         )
 
         return super().aggregate_train(server_round, eligible_replies)

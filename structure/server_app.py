@@ -42,6 +42,13 @@ round_metrics_path = Path.cwd() / "round_metrics.csv"
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
+    """
+    Executa treinamentos federados para as seeds configuradas e salva resultados.
+
+    Parâmetros:
+        - grid: infraestrutura Flower com os nós clientes disponíveis
+        - context: contexto Flower com configurações e opções de saída
+    """
     seeds = ast.literal_eval(
         context.run_config.get("seeds", "[42]")
     )
@@ -67,7 +74,17 @@ def main(grid: Grid, context: Context) -> None:
             "w", newline="", encoding="utf-8"
         ) as metrics_file:
             csv.writer(metrics_file).writerow(
-                ["server_round", "loss", "accuracy", "total_bytes_comunication"]
+                [
+                    "server_round",
+                    "loss",
+                    "accuracy",
+                    "total_bytes_comunication",
+                    "communication_bytes_sent",
+                    "communication_bytes_received",
+                    "total_communication_cost_seconds",
+                    "communication_cost_sent_seconds",
+                    "communication_cost_received_seconds",
+                ]
             )
         run_training_for_seed(grid, context, seed, seed_output_dir)
 
@@ -281,13 +298,21 @@ def run_training_for_seed(
     # Resultado final do treinamento
     best_global_accuracy, final_global_loss, total_bytes = sim_env.get_final_metrics()
     megabytes = total_bytes / (1024**2)
+    total_communication_cost = sim_env.get_total_communication_cost()
 
     print(f"\nResumo do treinamento:\n"
           f"Melhor acurácia global: {best_global_accuracy:.4f}"
           f"({best_global_accuracy * 100:.2f}%)\n"
           f"Loss global final: {final_global_loss:.6f}\n"
           "Total de bytes de comunicação "
-          f"{megabytes:.2f} MB"
+          f"{megabytes:.2f} MB\n"
+          f"Bytes enviados: {sim_env.communication_bytes_sent}; "
+          f"bytes recebidos de clientes válidos: "
+          f"{sim_env.communication_bytes_received}\n"
+          "Custo de comunicação total (envio + respostas válidas): "
+          f"{total_communication_cost:.6f} s "
+          f"({sim_env.communication_cost_sent:.6f} s + "
+          f"{sim_env.communication_cost_received:.6f} s)"
     )
 
     # Escrita dos resultados finais em disco
@@ -341,9 +366,25 @@ def global_evaluate(
     comm_bytes = sim_env.get_total_communication_bytes()
 
     if server_round > 0:
+        comm_cost = sim_env.get_total_communication_cost()
+        communication_bytes_sent = sim_env.communication_bytes_sent
+        communication_bytes_received = sim_env.communication_bytes_received
+        communication_cost_sent = sim_env.communication_cost_sent
+        communication_cost_received = sim_env.communication_cost_received
+
         with round_metrics_path.open("a", newline="", encoding="utf-8") as metrics_file:
             csv.writer(metrics_file).writerow(
-                [server_round, test_loss, test_acc, comm_bytes]
+                [
+                    server_round,
+                    test_loss,
+                    test_acc,
+                    comm_bytes,
+                    communication_bytes_sent,
+                    communication_bytes_received,
+                    comm_cost,
+                    communication_cost_sent,
+                    communication_cost_received,
+                ]
             )
 
         # Construção da máscara de clientes selecionados e losses

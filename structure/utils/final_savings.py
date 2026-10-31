@@ -63,6 +63,8 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
 
     Os arquivos de entrada devem se chamar ``round_metrics*.csv`` e conter
     ``server_round``, ``accuracy``, ``loss`` e ``total_bytes_comunication``.
+    As métricas direcionais e de custo são agregadas quando estão presentes em
+    todos os arquivos.
     """
     input_dir, csv_paths = _find_seed_metrics(input_dir)
     output_dir = Path(output_dir)
@@ -73,10 +75,20 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
         "loss",
         "total_bytes_comunication",
     )
+    optional_metrics = {
+        "communication_bytes_sent": "bytes_sent",
+        "communication_bytes_received": "bytes_received",
+        "total_communication_cost_seconds": "communication_cost_seconds",
+        "communication_cost_sent_seconds": "communication_cost_sent_seconds",
+        "communication_cost_received_seconds": "communication_cost_received_seconds",
+    }
     frames = []
+    metric_column_presence = {column: [] for column in optional_metrics}
     for csv_path in csv_paths:
         frame = pd.read_csv(csv_path)
         frame.columns = frame.columns.str.strip()
+        for column in optional_metrics:
+            metric_column_presence[column].append(column in frame.columns)
         missing_columns = set(required_columns).difference(frame.columns)
         if missing_columns:
             raise ValueError(
@@ -84,13 +96,26 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
                 f"{', '.join(sorted(missing_columns))}"
             )
 
-        frame = frame[list(required_columns)].rename(
+        columns = list(required_columns)
+        columns.extend(
+            column
+            for column, presence in metric_column_presence.items()
+            if presence[-1]
+        )
+        frame = frame[columns].rename(
             columns={
                 "server_round": "round",
                 "total_bytes_comunication": "bytes",
+                **optional_metrics,
             }
         )
-        for column in ("round", "accuracy", "loss", "bytes"):
+        numeric_columns = ["round", "accuracy", "loss", "bytes"]
+        numeric_columns.extend(
+            optional_metrics[column]
+            for column, presence in metric_column_presence.items()
+            if presence[-1]
+        )
+        for column in numeric_columns:
             frame[column] = pd.to_numeric(frame[column], errors="raise")
             if frame[column].isna().any() or not frame[column].map(
                 math.isfinite
@@ -104,6 +129,13 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
         frame["round"] = frame["round"].astype(int)
         frames.append(frame)
 
+    for column, presence in metric_column_presence.items():
+        if any(presence) and not all(presence):
+            raise ValueError(
+                f"Todos os CSVs devem conter {column} quando ao menos um "
+                "deles contiver essa coluna"
+            )
+
     expected_rounds = set(frames[0]["round"])
     for csv_path, frame in zip(csv_paths[1:], frames[1:]):
         if set(frame["round"]) != expected_rounds:
@@ -112,30 +144,38 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
             )
 
     all_metrics = pd.concat(frames, ignore_index=True)
+    aggregations = {
+        "accuracy_mean": ("accuracy", "mean"),
+        "accuracy_std": ("accuracy", "std"),
+        "loss_mean": ("loss", "mean"),
+        "loss_std": ("loss", "std"),
+        "bytes_mean": ("bytes", "mean"),
+        "bytes_std": ("bytes", "std"),
+    }
+    output_columns = [
+        "round",
+        "accuracy_mean",
+        "accuracy_std",
+        "loss_mean",
+        "loss_std",
+        "bytes_mean",
+        "bytes_std",
+    ]
+    for column, presence in metric_column_presence.items():
+        if all(presence):
+            metric_name = optional_metrics[column]
+            aggregations[f"{metric_name}_mean"] = (metric_name, "mean")
+            aggregations[f"{metric_name}_std"] = (metric_name, "std")
+            output_columns.extend(
+                [f"{metric_name}_mean", f"{metric_name}_std"]
+            )
+
     aggregated = (
         all_metrics.groupby("round", as_index=False)
-        .agg(
-            accuracy_mean=("accuracy", "mean"),
-            accuracy_std=("accuracy", "std"),
-            loss_mean=("loss", "mean"),
-            loss_std=("loss", "std"),
-            bytes_mean=("bytes", "mean"),
-            bytes_std=("bytes", "std"),
-        )
+        .agg(**aggregations)
         .sort_values("round")
         .reset_index(drop=True)
-    )
-    aggregated = aggregated[
-        [
-            "round",
-            "accuracy_mean",
-            "accuracy_std",
-            "loss_mean",
-            "loss_std",
-            "bytes_mean",
-            "bytes_std",
-        ]
-    ]
+    )[output_columns]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     aggregated.to_csv(output_dir / "aggregated_metrics.csv", index=False)
@@ -167,6 +207,17 @@ def aggregate_metrics_and_plots(input_dir, output_dir, dpi=300):
             sns.color_palette("colorblind")[2],
         ),
     )
+    if all(metric_column_presence["total_communication_cost_seconds"]):
+        plots += (
+            (
+                "communication_cost.png",
+                "Custo de comunicação acumulado por rodada",
+                "Custo de comunicação (s)",
+                "communication_cost_seconds_mean",
+                "communication_cost_seconds_std",
+                sns.color_palette("colorblind")[3],
+            ),
+        )
     for filename, title, ylabel, mean_column, std_column, color in plots:
         fig, ax = plt.subplots(figsize=(10, 6))
         rounds = aggregated["round"]
@@ -202,7 +253,7 @@ def save_config_metrics_and_plots(
 ):
     """
     Cria uma pasta com a data atual, salva as métricas obtidas durante o treinamento,
-    o arquivo de configuração, e os plots finais (acurácia, loss e bytes de comunicação).
+    o arquivo de configuração e os gráficos de acurácia, loss, bytes e custo de comunicação.
 
     Parâmetros:
         - csv_path: caminho para o arquivo csv com as métricas do treinamento.
@@ -276,6 +327,10 @@ def save_config_metrics_and_plots(
     if "total_bytes_comunication" in df.columns:
         df["total_mb_comunication"] = df["total_bytes_comunication"] / (
             1024 * 1024
+        )
+    if "total_communication_cost_seconds" in df.columns:
+        df["total_communication_cost_seconds"] = pd.to_numeric(
+            df["total_communication_cost_seconds"], errors="raise"
         )
 
     # -------------------------------------------------------------
@@ -382,6 +437,32 @@ def save_config_metrics_and_plots(
         bbox_inches="tight",
     )
     plt.close()
+
+    if "total_communication_cost_seconds" in df.columns:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.lineplot(
+            data=df,
+            x="server_round",
+            y="total_communication_cost_seconds",
+            linewidth=2.5,
+            ax=ax,
+        )
+        ax.set_title(
+            "Custo de Comunicação Acumulado por Rodada (s)",
+            fontsize=13,
+            fontweight="bold",
+            pad=12,
+        )
+        ax.set_xlabel("Rodada do Servidor (Server Round)")
+        ax.set_ylabel("Custo acumulado (s)")
+        sns.despine()
+        plt.tight_layout()
+        fig.savefig(
+            os.path.join(output_dir, "communication_cost_per_round.png"),
+            dpi=150,
+            bbox_inches="tight",
+        )
+        plt.close()
 
     # -------------------------------------------------------------
     # Gráfico 4: Dashboard Combinado (3 Subplots)

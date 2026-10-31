@@ -1,4 +1,6 @@
 import math
+from typing import Literal
+
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -20,6 +22,21 @@ class SimulationEnvironment(gym.Env):
         seed: int = 42,
         rounds_warm_up: int = 20
     ):
+        """
+        Inicializa o ambiente federado, os estados do MDP e as métricas.
+
+        Parâmetros:
+            - num_clients: quantidade de clientes da simulação
+            - divergences_kl: divergência KL de cada cliente
+            - number_of_examples: quantidade de exemplos locais por cliente
+            - costs_communication: custo de comunicação ``c_i`` por cliente
+            - max_rounds: número máximo de rodadas
+            - k_window: tamanho da janela para média de disponibilidade
+            - p_on_on: probabilidade de um cliente disponível continuar disponível
+            - p_off_on: probabilidade de um cliente indisponível ficar disponível
+            - seed: semente para os componentes aleatórios
+            - rounds_warm_up: rodadas iniciais sem normalizar a recompensa de comunicação
+        """
         # Atributos do ambiente de simulação
         self.num_clients = num_clients
         self.max_rounds = max_rounds
@@ -30,6 +47,11 @@ class SimulationEnvironment(gym.Env):
         self.last_accuracy = 0.0
         self.best_global_accuracy = 0.0
         self.total_communication_bytes = 0
+        self.communication_bytes_sent = 0
+        self.communication_bytes_received = 0
+        self.total_communication_cost = 0.0
+        self.communication_cost_sent = 0.0
+        self.communication_cost_received = 0.0
         self.participation_count = np.zeros(num_clients, dtype=int)
         self.min_reward_communication_bytes = math.inf
         self.max_reward_communication_bytes = -math.inf
@@ -92,6 +114,11 @@ class SimulationEnvironment(gym.Env):
         self.last_accuracy = 0.0
         self.best_global_accuracy = 0.0
         self.total_communication_bytes = 0
+        self.communication_bytes_sent = 0
+        self.communication_bytes_received = 0
+        self.total_communication_cost = 0.0
+        self.communication_cost_sent = 0.0
+        self.communication_cost_received = 0.0
         self.participation_count.fill(0)
 
         eligible_clients = self.availability_simulator.reset(seed=seed)
@@ -124,9 +151,8 @@ class SimulationEnvironment(gym.Env):
             - done: True se atingiu o número máximo de rodadas, ou False
             caso contrário
             - truncated: sempre retorna False
-            - info: informações adicionais do passo realizado, com
-            rodada, bytes comunicados, melhor acurácia global, última
-            acurácia, index de Jain e máscara de clientes selecionados.
+            - info: informações adicionais do passo realizado, incluindo bytes e
+                custo de comunicação enviados e recebidos.
         """
         clients_selected = np.asarray(clients_selected, dtype=bool)
         client_losses = np.asarray(client_losses, dtype=np.float32)
@@ -168,6 +194,11 @@ class SimulationEnvironment(gym.Env):
         info = {
             "round": self.round,
             "total_communication_bytes": self.total_communication_bytes,
+            "communication_bytes_sent": self.communication_bytes_sent,
+            "communication_bytes_received": self.communication_bytes_received,
+            "total_communication_cost": self.total_communication_cost,
+            "communication_cost_sent": self.communication_cost_sent,
+            "communication_cost_received": self.communication_cost_received,
             "best_global_accuracy": self.best_global_accuracy,
             "last_accuracy": self.last_accuracy,
             "jain_fairness_index": self._compute_jain_fairness(),
@@ -192,6 +223,50 @@ class SimulationEnvironment(gym.Env):
             raise ValueError("num_bytes must be non-negative")
         
         self.total_communication_bytes += int(num_bytes)
+
+    def record_client_communication(
+        self,
+        num_bytes: int,
+        client_indices: list[int],
+        direction: Literal["sent", "received"],
+    ) -> None:
+        """
+        Acumula bytes e custos MDP dos clientes comunicados em uma direção.
+
+        Parâmetros:
+            - num_bytes: bytes dos ArrayRecords das mensagens nessa direção
+            - client_indices: índices dos clientes na matriz de estado MDP
+            - direction: ``sent`` para envio ou ``received`` para respostas
+              válidas; o custo somado é a coluna 4 (``c_i``) desses clientes
+
+        Erros:
+            - ValueError: se a direção, os bytes ou algum índice forem inválidos,
+              ou se o custo calculado não for finito e não negativo
+        """
+        if direction not in ("sent", "received"):
+            raise ValueError("direction must be 'sent' or 'received'")
+        if num_bytes < 0:
+            raise ValueError("num_bytes must be non-negative")
+        if any(index < 0 or index >= self.num_clients for index in client_indices):
+            raise ValueError("client_indices must refer to existing clients")
+
+        costs = self.state_builder.get_observation_matrix()[client_indices, 4]
+        communication_cost = float(np.sum(costs, dtype=np.float64))
+        if not math.isfinite(communication_cost) or communication_cost < 0:
+            raise ValueError("communication costs must be finite and non-negative")
+
+        self.record_communication_bytes(num_bytes)
+        if direction == "sent":
+            self.communication_bytes_sent += int(num_bytes)
+            self.communication_cost_sent += communication_cost
+        else:
+            self.communication_bytes_received += int(num_bytes)
+            self.communication_cost_received += communication_cost
+        self.total_communication_cost += communication_cost
+
+    def get_total_communication_cost(self) -> float:
+        """Retorna o custo de comunicação acumulado do MDP, em segundos."""
+        return self.total_communication_cost
 
     def get_final_metrics(self) -> tuple[float, float, int]:
         """
@@ -298,6 +373,16 @@ class AvailabilitySimulator:
         p_off_on: float = 0.2,
         seed: int = 42
     ):
+        """
+        Inicializa a cadeia de Markov e o histórico de disponibilidade.
+
+        Parâmetros:
+            - num_clients: quantidade de clientes simulados
+            - k_window: número de rodadas mantidas na janela de disponibilidade
+            - p_on_on: probabilidade de permanecer disponível
+            - p_off_on: probabilidade de passar de indisponível para disponível
+            - seed: semente para a geração de disponibilidade
+        """
         self.num_clients = num_clients
         self.k_window = k_window
         self.seed = seed
@@ -375,6 +460,15 @@ class MDPStateBuilder:
         number_of_examples: np.ndarray,
         costs_communication: np.ndarray,
     ):
+        """
+        Inicializa a matriz de estado MDP para todos os clientes.
+
+        Parâmetros:
+            - num_clients: quantidade de clientes representados no estado
+            - divergences_kl: divergência KL de cada cliente
+            - number_of_examples: quantidade de exemplos de cada cliente
+            - costs_communication: custo de comunicação ``c_i`` de cada cliente
+        """
         self.num_clients = num_clients
         # Colunas: [0: loss, 1: D_kl, 2: n_i, 3: a_i, 4: c_i, 5: tau_i]
         self.S = np.zeros((num_clients, 6), dtype=np.float32)

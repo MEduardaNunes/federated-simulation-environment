@@ -3,12 +3,12 @@ run:
 
 run-simple:
 	flwr run . --stream \
-	--run-config="num-server-rounds=5 fraction-train=0.1" \
+	--run-config="num-server-rounds=5" \
     --federation-config="num-supernodes=100 init-args-num-cpus=4 init-args-num-gpus=1 client-resources-num-cpus=2 client-resources-num-gpus=0.5"
 
 run-complete:
 	flwr run . --stream \
-    --run-config="num-server-rounds=200 fraction-train=0.1" \
+    --run-config="num-server-rounds=200" \
     --federation-config="num-supernodes=100 init-args-num-cpus=4 init-args-num-gpus=1 client-resources-num-cpus=1 client-resources-num-gpus=0.5"
 
 clean-data:

@@ -35,14 +35,15 @@ clientapp = "structure.client_app:app"
 seeds = "[42,  43, 44, 45, 46]"
 num-server-rounds = 200
 fraction-evaluate = 0.0
-fraction-train = 0.1
+fraction-train = 0.3
 local-epochs = 3
 learning-rate = 0.05
 learning-rate-minimum = 0.001
 batch-size = 64
+
 dataset = "CIFAR-10"
-type-partition = "NO_IID"
+type-partition = "IID"
 strategy = "FedAvg"
-alpha-dirichlet = 0.5
+
 save-model = false
 save-result = true
