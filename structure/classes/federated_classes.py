@@ -53,8 +53,10 @@ class SimulationEnvironment(gym.Env):
         self.communication_cost_sent = 0.0
         self.communication_cost_received = 0.0
         self.participation_count = np.zeros(num_clients, dtype=int)
-        self.min_reward_communication_bytes = math.inf
-        self.max_reward_communication_bytes = -math.inf
+        self.min_communication_cost = math.inf
+        self.max_communication_cost = -math.inf
+        self.min_communication_cost_round: int | None = None
+        self.max_communication_cost_round: int | None = None
         self.rounds_warm_up = rounds_warm_up
 
         # Componentes do ambiente
@@ -119,6 +121,10 @@ class SimulationEnvironment(gym.Env):
         self.total_communication_cost = 0.0
         self.communication_cost_sent = 0.0
         self.communication_cost_received = 0.0
+        self.min_communication_cost = math.inf
+        self.max_communication_cost = -math.inf
+        self.min_communication_cost_round = None
+        self.max_communication_cost_round = None
         self.participation_count.fill(0)
 
         eligible_clients = self.availability_simulator.reset(seed=seed)
@@ -152,7 +158,8 @@ class SimulationEnvironment(gym.Env):
             caso contrário
             - truncated: sempre retorna False
             - info: informações adicionais do passo realizado, incluindo bytes e
-                custo de comunicação enviados e recebidos.
+                custo de comunicação enviados e recebidos, além dos custos e
+                rodadas com menor e maior custo de comunicação.
         """
         clients_selected = np.asarray(clients_selected, dtype=bool)
         client_losses = np.asarray(client_losses, dtype=np.float32)
@@ -199,6 +206,10 @@ class SimulationEnvironment(gym.Env):
             "total_communication_cost": self.total_communication_cost,
             "communication_cost_sent": self.communication_cost_sent,
             "communication_cost_received": self.communication_cost_received,
+            "min_communication_cost": self.min_communication_cost,
+            "min_communication_cost_round": self.min_communication_cost_round,
+            "max_communication_cost": self.max_communication_cost,
+            "max_communication_cost_round": self.max_communication_cost_round,
             "best_global_accuracy": self.best_global_accuracy,
             "last_accuracy": self.last_accuracy,
             "jain_fairness_index": self._compute_jain_fairness(),
@@ -293,16 +304,28 @@ class SimulationEnvironment(gym.Env):
             return 0.0
 
         observation_matrix = self.state_builder.get_observation_matrix()
-        comm_costs = observation_matrix[selected_clients, 4]  # c_i for selected
-        sum_comm = -np.sum(comm_costs)
+        communication_cost = float(
+            np.sum(observation_matrix[selected_clients, 4], dtype=np.float64)
+        )
+        current_round = self.round + 1
 
-        self.min_reward_communication_bytes = min(self.min_reward_communication_bytes, sum_comm)
-        self.max_reward_communication_bytes = max(self.max_reward_communication_bytes, sum_comm)
+        if communication_cost < self.min_communication_cost:
+            self.min_communication_cost = communication_cost
+            self.min_communication_cost_round = current_round
+        if communication_cost > self.max_communication_cost:
+            self.max_communication_cost = communication_cost
+            self.max_communication_cost_round = current_round
 
-        if self.round < self.rounds_warm_up or self.max_reward_communication_bytes == self.min_reward_communication_bytes:
+        if (
+            self.round < self.rounds_warm_up
+            or self.max_communication_cost == self.min_communication_cost
+        ):
             return 0.5
 
-        normalized_comm_reward = (sum_comm - self.min_reward_communication_bytes) / (self.max_reward_communication_bytes - self.min_reward_communication_bytes)
+        normalized_comm_reward = 1.0 - (
+            (communication_cost - self.min_communication_cost)
+            / (self.max_communication_cost - self.min_communication_cost)
+        )
 
         return normalized_comm_reward
 
