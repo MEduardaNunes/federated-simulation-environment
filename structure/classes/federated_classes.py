@@ -200,18 +200,11 @@ class SimulationEnvironment(gym.Env):
         # Informações adicionais sobre o ambiente
         info = {
             "round": self.round,
-            "total_communication_bytes": self.total_communication_bytes,
             "communication_bytes_sent": self.communication_bytes_sent,
             "communication_bytes_received": self.communication_bytes_received,
-            "total_communication_cost": self.total_communication_cost,
             "communication_cost_sent": self.communication_cost_sent,
             "communication_cost_received": self.communication_cost_received,
-            "min_communication_cost": self.min_communication_cost,
-            "min_communication_cost_round": self.min_communication_cost_round,
-            "max_communication_cost": self.max_communication_cost,
-            "max_communication_cost_round": self.max_communication_cost_round,
             "best_global_accuracy": self.best_global_accuracy,
-            "last_accuracy": self.last_accuracy,
             "jain_fairness_index": self._compute_jain_fairness(),
             "eligible_clients_mask": next_eligible_clients,
             "number_clients_selected": num_clients_selected.item()
@@ -256,23 +249,28 @@ class SimulationEnvironment(gym.Env):
         """
         if direction not in ("sent", "received"):
             raise ValueError("direction must be 'sent' or 'received'")
+
         if num_bytes < 0:
             raise ValueError("num_bytes must be non-negative")
+
         if any(index < 0 or index >= self.num_clients for index in client_indices):
             raise ValueError("client_indices must refer to existing clients")
 
         costs = self.state_builder.get_observation_matrix()[client_indices, 4]
         communication_cost = float(np.sum(costs, dtype=np.float64))
+
         if not math.isfinite(communication_cost) or communication_cost < 0:
             raise ValueError("communication costs must be finite and non-negative")
 
         self.record_communication_bytes(num_bytes)
+
         if direction == "sent":
             self.communication_bytes_sent += int(num_bytes)
             self.communication_cost_sent += communication_cost
         else:
             self.communication_bytes_received += int(num_bytes)
             self.communication_cost_received += communication_cost
+
         self.total_communication_cost += communication_cost
 
     def get_total_communication_cost(self) -> float:
@@ -312,6 +310,7 @@ class SimulationEnvironment(gym.Env):
         if communication_cost < self.min_communication_cost:
             self.min_communication_cost = communication_cost
             self.min_communication_cost_round = current_round
+
         if communication_cost > self.max_communication_cost:
             self.max_communication_cost = communication_cost
             self.max_communication_cost_round = current_round
@@ -322,7 +321,7 @@ class SimulationEnvironment(gym.Env):
         ):
             return 0.5
 
-        normalized_comm_reward = 1.0 - (
+        normalized_comm_reward = (
             (communication_cost - self.min_communication_cost)
             / (self.max_communication_cost - self.min_communication_cost)
         )

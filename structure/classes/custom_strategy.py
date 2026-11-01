@@ -134,6 +134,13 @@ class SimulationFedAvg(FedAvg):
             self.simulation_environment.eligible_clients_mask.astype(int).tolist()
         )
         messages = list(super().configure_train(server_round, arrays, config, grid))
+        if messages:
+            for key, record in messages[0].content.items():
+                if isinstance(record, ArrayRecord):
+                    print(
+                        f"[ENVIO - SERVIDOR] Chave: '{key}' | Bytes:"
+                        f" {record.count_bytes()}"
+                    )
         self.simulation_environment.record_client_communication(
             _count_message_record_bytes(messages),
             _client_indices_for_messages(messages, grid),
@@ -161,6 +168,13 @@ class SimulationFedAvg(FedAvg):
             for reply in replies
             if not reply.has_error() and bool(reply.content["metrics"]["eligible"])
         ]
+        if eligible_replies:
+            for key, record in eligible_replies[0].content.items():
+                if isinstance(record, ArrayRecord):
+                    print(
+                        f"[RETORNO - CLIENTE] Chave: '{key}' | Bytes:"
+                        f" {record.count_bytes()}"
+                    )
         self.simulation_environment.record_client_communication(
             _count_message_record_bytes(eligible_replies),
             [
