@@ -2,7 +2,10 @@ from flwr.app import (ArrayRecord, ConfigRecord, Message, MetricRecord)
 from flwr.serverapp.strategy import FedAvg, FedProx
 from flwr.serverapp import Grid
 from collections.abc import Iterable
+import numpy as np
+from pathlib import Path
 
+from structure.classes.agent import SelectionClientAgent
 from structure.classes.federated_classes import SimulationEnvironment
 from ..utils.common import _count_message_record_bytes
 
@@ -368,3 +371,126 @@ class SimulationPowerOfChoice(FedAvg):
         )
 
         return super().aggregate_train(server_round, eligible_replies)
+
+
+class SimulationDQN(SimulationFedAvg):
+    """FedAvg com seleção de clientes por um agente DQN."""
+
+    def __init__(
+        self,
+        *args,
+        num_selected: int,
+        selection_agent: SelectionClientAgent,
+        simulation_environment: SimulationEnvironment,
+        checkpoint_path: str | Path | None = None,
+        **kwargs,
+    ):
+        if num_selected <= 0:
+            raise ValueError("num_selected deve ser maior que zero.")
+        super().__init__(
+            *args,
+            simulation_environment=simulation_environment,
+            **kwargs,
+        )
+        self.num_selected = num_selected
+        self.selection_agent = selection_agent
+        self.checkpoint_path = (
+            Path(checkpoint_path) if checkpoint_path is not None else None
+        )
+        self._pending_state: np.ndarray | None = None
+        self.reward_history: list[float] = []
+
+    def configure_train(
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
+    ) -> Iterable[Message]:
+        _set_round_learning_rate(
+            config,
+            server_round,
+            self.initial_learning_rate,
+            self.minimum_learning_rate,
+            self.max_rounds,
+        )
+        config["eligible-clients-mask"] = (
+            self.simulation_environment.eligible_clients_mask.astype(int).tolist()
+        )
+
+        candidates = list(
+            FedAvg.configure_train(self, server_round, arrays, config, grid)
+        )
+        client_indices = _client_indices_for_messages(candidates, grid)
+        eligible_mask = self.simulation_environment.eligible_clients_mask
+        candidate_mask = np.zeros(self.simulation_environment.num_clients, dtype=bool)
+        for client_index in client_indices:
+            candidate_mask[client_index] = eligible_mask[client_index]
+
+        observation = (
+            self.simulation_environment.state_builder.get_observation_matrix()
+        )
+        self._pending_state = self.selection_agent.selection_state(
+            observation, candidate_mask
+        )
+        selected_indices = self.selection_agent.select_clients(
+            self._pending_state,
+            candidate_mask,
+            self.num_selected,
+        )
+        selected_index_set = set(selected_indices)
+        selected_messages = [
+            message
+            for message, client_index in zip(candidates, client_indices)
+            if client_index in selected_index_set
+        ]
+
+        self.simulation_environment.record_client_communication(
+            _count_message_record_bytes(selected_messages),
+            selected_indices,
+            "sent",
+        )
+        return selected_messages
+
+    def observe_transition(
+        self,
+        next_observation: np.ndarray,
+        reward: float,
+        selected_mask: np.ndarray,
+        next_eligible_mask: np.ndarray,
+        done: bool,
+    ) -> None:
+        if self._pending_state is None:
+            raise RuntimeError("Não há uma ação DQN pendente para esta rodada.")
+
+        actual_selected = np.flatnonzero(np.asarray(selected_mask, dtype=bool)).tolist()
+        next_state = self.selection_agent.selection_state(
+            next_observation, next_eligible_mask
+        )
+        self.selection_agent.remember_selection(
+            self._pending_state,
+            actual_selected,
+            reward,
+            next_state,
+            done,
+        )
+        loss = self.selection_agent.optimize_model()
+        self.selection_agent.update_target_network()
+        self.reward_history.append(float(reward))
+        rolling_reward = float(np.mean(self.reward_history[-20:]))
+        if (
+            loss is not None
+            and actual_selected
+            and self.checkpoint_path is not None
+            and rolling_reward > self.selection_agent.best_checkpoint_score
+        ):
+            self.selection_agent.save_checkpoint(
+                self.checkpoint_path,
+                rolling_reward,
+            )
+            print(
+                "[DQN] Melhor checkpoint salvo "
+                f"(recompensa móvel: {rolling_reward:.6f}) em "
+                f"{self.checkpoint_path}"
+            )
+        self._pending_state = None

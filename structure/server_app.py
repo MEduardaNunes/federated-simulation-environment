@@ -12,6 +12,7 @@ from flwr.serverapp import Grid, ServerApp
 
 from structure.classes.federated_classes import SimulationEnvironment
 from structure.classes.custom_strategy import *
+from structure.classes.agent import SelectionClientAgent
 from structure.classes.neural_network import Net
 from structure.utils.dataset_config import DEFAULT_DATASET, get_dataset_config
 from structure.utils.data import (
@@ -162,6 +163,7 @@ def run_training_for_seed(
 
     sim_env.reset(seed=seed)
     round_client_losses: dict[int, float] = {}
+    selection_strategy: SimulationDQN | None = None
 
     def aggregate_training_metrics(
         records: list[RecordDict], weighting_key: str
@@ -220,6 +222,7 @@ def run_training_for_seed(
             num_partitions,
             alpha,
             seed,
+            selection_strategy,
         )
 
         return metrics
@@ -275,6 +278,33 @@ def run_training_for_seed(
             simulation_environment=sim_env,
             **lr_decay_config,
         )
+
+    elif strategy_name == "DQN":
+        K = int(context.run_config["K"])
+        selection_agent = SelectionClientAgent(
+            env=None,
+            observation_size=sim_env.num_clients * 7,
+            action_size=sim_env.num_clients,
+            seed=seed,
+        )
+        checkpoint_path = Path("results") / "dqn_checkpoints" / f"seed-{seed}.pt"
+        if checkpoint_path.exists():
+            previous_best = selection_agent.load_checkpoint(checkpoint_path)
+            print(
+                f"[DQN] Checkpoint carregado de {checkpoint_path} "
+                f"(recompensa móvel: {previous_best:.6f})"
+            )
+        strategy = SimulationDQN(
+            fraction_evaluate=fraction_evaluate,
+            fraction_train=1.0,
+            train_metrics_aggr_fn=aggregate_training_metrics,
+            num_selected=K,
+            selection_agent=selection_agent,
+            simulation_environment=sim_env,
+            checkpoint_path=checkpoint_path,
+            **lr_decay_config,
+        )
+        selection_strategy = strategy
 
     else:
         print("Estratégia não conhecida")
@@ -336,6 +366,7 @@ def global_evaluate(
     num_partitions: int = 100,
     alpha: float = 0.5,
     seed: int = 42,
+    selection_strategy: SimulationDQN | None = None,
 ) -> MetricRecord:
     """
     Avalia modelo centralizado com todo o dataset de validação.
@@ -402,6 +433,14 @@ def global_evaluate(
             clients_selected=clients_selected,
             client_losses=losses,
         )
+        if selection_strategy is not None:
+            selection_strategy.observe_transition(
+                next_observation=next_obs,
+                reward=reward,
+                selected_mask=clients_selected,
+                next_eligible_mask=info["eligible_clients_mask"],
+                done=done,
+            )
         round_client_losses.clear()
 
         print(f"Recompensa da rodada {server_round}: {reward:.4f}")

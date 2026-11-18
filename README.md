@@ -5,7 +5,7 @@ framework: [torch, torchvision, flower, gymnasium]
 
 # Aprendizado Federado com algoritmo customizado de seleção de clientes com agente baseado em Reinforcement Learning
 
-Esse repositório busca implementar um ambiente federado que permita o treinamento em clientes de uma rede neural para classificar imagens de um dataset (suporte para CIFAR-10 e FEMNIST). Além disso, também é possível fazer partições IID e não-IID dos datasets entre os clientes, que será explicado posteriormente. Os algoritmos de seleção de clientes possíveis são: FedAvg, FedProx e Power-of-Choic (posteriormente terá o agente baseado em Aprendizado por Reforço).
+Esse repositório busca implementar um ambiente federado que permita o treinamento em clientes de uma rede neural para classificar imagens de um dataset (suporte para CIFAR-10 e FEMNIST). Além disso, também é possível fazer partições IID e não-IID dos datasets entre os clientes, que será explicado posteriormente. Os algoritmos de seleção de clientes possíveis são: FedAvg, FedProx, Power-of-Choice e DQN.
 
 
 ## Set up do projeto
@@ -96,13 +96,14 @@ Define o valor do alpha para o termo Dirichlet, utilizado para controlar a diver
 Define a estratégia a ser utilizada para a agregação das atualizações recebidas pelo clientes. Pode assumir apenas um valor dentro os disponíveis, explicados à seguir:
 - `"FedAvg"`: utiliza FedAvg,
 - `"FedProx"`: utiliza FedProx (deve-se definir `"proximal-mu"`),
-- `"POC"`: utiliza PowerOfChoice (deve-se definir `"K"`).
+- `"POC"`: utiliza PowerOfChoice (deve-se definir `"K"`),
+- `"DQN"`: seleciona até `"K"` clientes elegíveis usando o agente DQN.
 
 ### proximal-mu
 Define o valor do hiperparâmetro que controle a força do termo proximal na função de perda. Seu valor deve ser um número decimal maior que zero, idealmente no intervao [0, 1].
 
 ### K
-Define o valor de clientes a serem selecionados efetivamente dentre os D disponíveis na estratégia PowerOfChoice. Seu valor deve ser um número inteiro no intervalo [1, D].
+Define o número máximo de clientes selecionados por rodada nas estratégias PowerOfChoice e DQN. Seu valor deve ser um inteiro positivo; a quantidade efetiva não excede os clientes elegíveis.
 
 ### save-model
 Define se o modelo final deve ser salvo em disco ou não. Seu valor deve ser `true` ou `false`.
@@ -113,7 +114,7 @@ Define se os plots, o arquivo de métricas de cada rodada (com loss, acurácia e
 
 ## Exemplos de configurações base para cada estratégia
 
-À seguir, será apresentada a seção `[tool.flwr.app.config]` do arquivo `pyproject.toml` com os hiperparâmetros que devem ser definidos para cada estratégia possível (FedAvg, FedProx e POC).
+À seguir, será apresentada a seção `[tool.flwr.app.config]` do arquivo `pyproject.toml` com os hiperparâmetros que devem ser definidos para cada estratégia possível.
 
 ### Configuração base FedAvg
 ```shell
@@ -176,6 +177,29 @@ K = 10
 save-model = false
 save-result = true
 ```
+
+### Configuração base DQN
+```shell
+[tool.flwr.app.config]
+num-server-rounds = 100
+fraction-evaluate = 0.0
+fraction-train = 1.0
+local-epochs = 1
+learning-rate = 0.05
+learning-rate-minimum = 0.001
+batch-size = 64
+
+dataset = "CIFAR-10"
+type-partition = "NO_IID"
+strategy = "DQN"
+alpha-dirichlet = 0.1
+K = 10
+
+save-model = false
+save-result = true
+```
+
+O agente DQN salva o melhor checkpoint em `results/dqn_checkpoints/seed-<seed>.pt`, considerando a média das recompensas das últimas 20 rodadas. Se o arquivo já existir, ele é carregado automaticamente no início da execução para a mesma seed. Essa opção é independente de `save-model`, que controla apenas o modelo global de classificação.
 
 ## Rodando o projeto
 

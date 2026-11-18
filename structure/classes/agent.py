@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 from typing import NamedTuple
 
 import gymnasium as gym
@@ -104,11 +105,11 @@ class ReplayBuffer:
 
 
 class SelectionClientAgent:
-    """Agente DQN para ambientes Gymnasium com observações vetoriais."""
+    """Agente DQN para ambientes vetoriais e seleção federada de clientes."""
 
     def __init__(
         self,
-        env: gym.Env,
+        env: gym.Env | None,
         learning_rate: float = 3e-4,
         eps_start: float = 0.9,
         eps_end: float = 0.01,
@@ -119,15 +120,29 @@ class SelectionClientAgent:
         memory_size: int = 10000,
         hidden_sizes: tuple[int, ...] | list[int] = (128, 128),
         seed: int | None = None,
+        observation_size: int | None = None,
+        action_size: int | None = None,
     ) -> None:
-        if not hasattr(env.action_space, "n"):
-            raise TypeError("O ambiente deve possuir um espaço de ações discreto.")
-
         self.env = env
-        self.state_size = int(np.prod(env.observation_space.shape))
-        if self.state_size <= 0:
-            raise ValueError("O ambiente deve possuir observações vetoriais.")
-        self.action_size = int(env.action_space.n)
+        self.selection_mode = env is None
+        if env is None:
+            if observation_size is None or action_size is None:
+                raise ValueError(
+                    "observation_size e action_size são necessários sem um ambiente."
+                )
+            self.state_size = int(observation_size)
+            self.action_size = int(action_size)
+        else:
+            if not hasattr(env.action_space, "n"):
+                raise TypeError("O ambiente deve possuir um espaço de ações discreto.")
+            if observation_size is not None or action_size is not None:
+                raise ValueError(
+                    "Não informe observation_size/action_size junto com um ambiente."
+                )
+            self.state_size = int(np.prod(env.observation_space.shape))
+            self.action_size = int(env.action_space.n)
+        if self.state_size <= 0 or self.action_size <= 0:
+            raise ValueError("As dimensões de estado e ação devem ser positivas.")
         self.steps_done = 0
 
         if learning_rate <= 0:
@@ -178,6 +193,7 @@ class SelectionClientAgent:
         self.memory = ReplayBuffer(
             self.memory_size, self.state_size, np.random.default_rng(seed)
         )
+        self.best_checkpoint_score = -math.inf
 
     def _state_tensor(self, state: np.ndarray | torch.Tensor) -> torch.Tensor:
         if isinstance(state, torch.Tensor):
@@ -204,6 +220,88 @@ class SelectionClientAgent:
         with torch.no_grad():
             return int(self.policy_net(self._state_tensor(state)).argmax(dim=1).item())
 
+    def selection_state(
+        self, observation: np.ndarray, eligible_mask: np.ndarray
+    ) -> np.ndarray:
+        if not self.selection_mode:
+            raise RuntimeError("selection_state requer um agente de seleção de clientes.")
+
+        observation = np.asarray(observation, dtype=np.float32).reshape(-1)
+        eligible_mask = np.asarray(eligible_mask, dtype=bool).reshape(-1)
+        if eligible_mask.shape != (self.action_size,):
+            raise ValueError("Dimensão da máscara de elegibilidade inválida.")
+        if observation.size + eligible_mask.size != self.state_size:
+            raise ValueError("Dimensão da observação de seleção inválida.")
+
+        return np.concatenate((observation, eligible_mask.astype(np.float32)))
+
+    def select_clients(
+        self,
+        state: np.ndarray,
+        eligible_mask: np.ndarray,
+        num_selected: int,
+        explore: bool = True,
+    ) -> list[int]:
+        if not self.selection_mode:
+            raise RuntimeError("select_clients requer um agente de seleção de clientes.")
+        if num_selected <= 0:
+            raise ValueError("num_selected deve ser maior que zero.")
+
+        eligible_mask = np.asarray(eligible_mask, dtype=bool).reshape(-1)
+        if eligible_mask.shape != (self.action_size,):
+            raise ValueError("Dimensão da máscara de elegibilidade inválida.")
+        available = np.flatnonzero(eligible_mask)
+        if available.size == 0:
+            return []
+
+        state_tensor = self._state_tensor(state)
+        with torch.no_grad():
+            action_values = self.policy_net(state_tensor).squeeze(0).cpu().numpy()
+
+        selected: list[int] = []
+        candidates = available.copy()
+        for _ in range(min(num_selected, candidates.size)):
+            epsilon = self.eps_end + (self.eps_start - self.eps_end) * math.exp(
+                -self.steps_done / self.eps_decay
+            )
+            self.eps_history.append(epsilon)
+            self.steps_done += 1
+            if explore and self.rng.random() < epsilon:
+                selected_position = int(self.rng.integers(candidates.size))
+            else:
+                selected_position = int(
+                    np.argmax(action_values[candidates])
+                )
+            selected.append(int(candidates[selected_position]))
+            candidates = np.delete(candidates, selected_position)
+
+        return selected
+
+    def remember_selection(
+        self,
+        state: np.ndarray,
+        selected_clients: list[int],
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ) -> None:
+        if not self.selection_mode:
+            raise RuntimeError(
+                "remember_selection requer um agente de seleção de clientes."
+            )
+        if not selected_clients:
+            return
+
+        client_reward = float(reward) / len(selected_clients)
+        for client_id in selected_clients:
+            self.memory.add(
+                state,
+                client_id,
+                client_reward,
+                next_state,
+                done,
+            )
+
     def optimize_model(self) -> float | None:
         if len(self.memory) < self.batch_size:
             return None
@@ -219,7 +317,20 @@ class SelectionClientAgent:
             1
         )
         with torch.no_grad():
-            next_state_values = self.target_net(next_obs).max(dim=1).values
+            next_action_values = self.target_net(next_obs)
+            if self.selection_mode:
+                next_eligible = next_obs[:, -self.action_size :].bool()
+                next_action_values = next_action_values.masked_fill(
+                    ~next_eligible, -torch.inf
+                )
+                next_state_values = next_action_values.max(dim=1).values
+                next_state_values = torch.where(
+                    next_eligible.any(dim=1),
+                    next_state_values,
+                    torch.zeros_like(next_state_values),
+                )
+            else:
+                next_state_values = next_action_values.max(dim=1).values
             expected_values = rewards + self.gamma * next_state_values * (1 - dones)
 
         loss = F.smooth_l1_loss(state_action_values, expected_values)
@@ -239,7 +350,73 @@ class SelectionClientAgent:
             ):
                 target_param.lerp_(policy_param, self.tau)
 
+    def save_checkpoint(self, path: str | Path, score: float) -> None:
+        score = float(score)
+        if not math.isfinite(score):
+            raise ValueError("O score do checkpoint deve ser finito.")
+
+        checkpoint_path = Path(path)
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = checkpoint_path.with_name(
+            f".{checkpoint_path.name}.tmp"
+        )
+        checkpoint = {
+            "format_version": 1,
+            "state_size": self.state_size,
+            "action_size": self.action_size,
+            "policy_net": self.policy_net.state_dict(),
+            "target_net": self.target_net.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "steps_done": self.steps_done,
+            "best_score": score,
+        }
+        try:
+            torch.save(checkpoint, temporary_path)
+            temporary_path.replace(checkpoint_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        self.best_checkpoint_score = score
+
+    def load_checkpoint(self, path: str | Path) -> float:
+        checkpoint = torch.load(path, map_location=device, weights_only=True)
+        required_fields = {
+            "format_version",
+            "state_size",
+            "action_size",
+            "policy_net",
+            "target_net",
+            "optimizer",
+            "steps_done",
+            "best_score",
+        }
+        if not isinstance(checkpoint, dict) or not required_fields.issubset(checkpoint):
+            raise ValueError("Formato de checkpoint DQN inválido.")
+        if checkpoint["format_version"] != 1:
+            raise ValueError("Versão de checkpoint DQN não suportada.")
+        if (
+            checkpoint["state_size"] != self.state_size
+            or checkpoint["action_size"] != self.action_size
+        ):
+            raise ValueError("Checkpoint incompatível com as dimensões do agente.")
+
+        best_score = float(checkpoint["best_score"])
+        steps_done = checkpoint["steps_done"]
+        if not math.isfinite(best_score):
+            raise ValueError("O score do checkpoint deve ser finito.")
+        if isinstance(steps_done, bool) or not isinstance(steps_done, int) or steps_done < 0:
+            raise ValueError("Contagem de passos inválida no checkpoint.")
+
+        self.policy_net.load_state_dict(checkpoint["policy_net"])
+        self.target_net.load_state_dict(checkpoint["target_net"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.target_net.eval()
+        self.steps_done = steps_done
+        self.best_checkpoint_score = best_score
+        return best_score
+
     def test(self, num_episodes: int = 100) -> dict[str, float]:
+        if self.env is None:
+            raise RuntimeError("Avaliação episódica requer um ambiente Gymnasium.")
         if num_episodes <= 0:
             raise ValueError("num_episodes deve ser maior que zero.")
 
@@ -278,6 +455,8 @@ def train(
     win_threshold: float = 500,
 ) -> SelectionClientAgent:
     """Treina o agente DQN e retorna o agente com seu histórico atualizado."""
+    if agent.env is None:
+        raise RuntimeError("O treino episódico requer um ambiente Gymnasium.")
     if num_episodes <= 0:
         raise ValueError("num_episodes deve ser maior que zero.")
 
